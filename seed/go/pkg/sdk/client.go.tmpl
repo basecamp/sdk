@@ -1,0 +1,237 @@
+package sdk
+
+import (
+	"context"
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/rand"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// DefaultUserAgent is the default User-Agent header value.
+const DefaultUserAgent = "{{.AppName}}-sdk-go/" + Version + " (api:" + APIVersion + ")"
+
+// Config holds client configuration.
+type Config struct {
+	BaseURL    string
+	UserAgent  string
+	MaxRetries int
+	Timeout    time.Duration
+	MaxPages   int
+}
+
+// Client is an HTTP client for the {{.AppTitle}} API.
+type Client struct {
+	httpClient   *http.Client
+	authStrategy AuthStrategy
+	cfg          *Config
+	hooks        Hooks
+}
+
+// Option configures the Client.
+type Option func(*Client)
+
+// WithMaxRetries sets the maximum number of retries.
+func WithMaxRetries(n int) Option {
+	return func(c *Client) { c.cfg.MaxRetries = n }
+}
+
+// WithTimeout sets the HTTP request timeout.
+func WithTimeout(d time.Duration) Option {
+	return func(c *Client) { c.cfg.Timeout = d }
+}
+
+// WithHooks sets observability hooks.
+func WithHooks(h Hooks) Option {
+	return func(c *Client) { c.hooks = h }
+}
+
+// NewClient creates a new API client.
+func NewClient(cfg *Config, tokenProvider TokenProvider, opts ...Option) (*Client, error) {
+	if cfg == nil {
+		cfg = &Config{}
+	}
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = "https://3.basecampapi.com"
+	}
+	if cfg.UserAgent == "" {
+		cfg.UserAgent = DefaultUserAgent
+	}
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = 3
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 30 * time.Second
+	}
+	if cfg.MaxPages == 0 {
+		cfg.MaxPages = 100
+	}
+
+	// Validate HTTPS for non-localhost URLs
+	if err := requireHTTPS(cfg.BaseURL); err != nil {
+		return nil, err
+	}
+
+	c := &Client{
+		httpClient:   &http.Client{Timeout: cfg.Timeout},
+		authStrategy: &BearerAuth{TokenProvider: tokenProvider},
+		cfg:          cfg,
+		hooks:        NoopHooks{},
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c, nil
+}
+
+// ForAccount returns an AccountClient bound to a specific account.
+func (c *Client) ForAccount(accountID string) *AccountClient {
+	if accountID == "" {
+		panic("{{.AppName}}: account ID must not be empty")
+	}
+	return &AccountClient{parent: c, accountID: accountID}
+}
+
+// AccountClient is bound to a specific account.
+type AccountClient struct {
+	parent    *Client
+	accountID string
+}
+
+// doRequest performs an authenticated HTTP request with retry logic.
+func (c *Client) doRequest(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	fullURL := strings.TrimRight(c.cfg.BaseURL, "/") + path
+
+	// Buffer the body so it can be replayed on retries.
+	var bodyBytes []byte
+	if body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(body)
+		if err != nil {
+			return nil, &Error{Code: CodeUsage, Message: fmt.Sprintf("failed to read request body: %v", err)}
+		}
+	}
+
+	var lastErr error
+	for attempt := 0; attempt <= c.cfg.MaxRetries; attempt++ {
+		var reqBody io.Reader
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, fullURL, reqBody)
+		if err != nil {
+			return nil, &Error{Code: CodeUsage, Message: fmt.Sprintf("invalid request: %v", err)}
+		}
+
+		if err := c.authStrategy.Authenticate(ctx, req); err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", c.cfg.UserAgent)
+		req.Header.Set("Accept", "application/json")
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = &Error{Code: CodeNetwork, Message: "network error", Retryable: isIdempotent(method), Cause: err}
+			if isIdempotent(method) && attempt < c.cfg.MaxRetries {
+				backoff(attempt)
+				continue
+			}
+			return nil, lastErr
+		}
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return resp, nil
+		}
+
+		sdkErr := ErrorFromResponse(resp)
+		lastErr = sdkErr
+
+		if sdkErr.Retryable && attempt < c.cfg.MaxRetries && isIdempotent(method) {
+			delay := backoffDelay(attempt)
+			if ra := parseRetryAfter(resp.Header.Get("Retry-After")); ra > 0 && ra > delay {
+				delay = ra
+			}
+			time.Sleep(delay)
+			continue
+		}
+
+		return nil, sdkErr
+	}
+
+	return nil, lastErr
+}
+
+func isIdempotent(method string) bool {
+	switch method {
+	case "GET", "HEAD", "PUT", "DELETE", "OPTIONS":
+		return true
+	}
+	return false
+}
+
+func backoff(attempt int) {
+	time.Sleep(backoffDelay(attempt))
+}
+
+func backoffDelay(attempt int) time.Duration {
+	base := time.Duration(1<<uint(attempt)) * time.Second
+	jitter := time.Duration(rand.Intn(100)) * time.Millisecond
+	return base + jitter
+}
+
+// parseRetryAfter parses a Retry-After header value into a duration.
+// Returns 0 if the header is absent or unparseable.
+func parseRetryAfter(value string) time.Duration {
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if t, err := http.ParseTime(value); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+// doJSON is a convenience wrapper that decodes JSON responses.
+func doJSON[T any](ctx context.Context, c *Client, method, path string, body io.Reader) (*T, error) {
+	resp, err := c.doRequest(ctx, method, path, body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result T
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, &Error{Code: CodeAPI, Message: "failed to decode response"}
+	}
+
+	return &result, nil
+}
+
+func requireHTTPS(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ErrUsage(fmt.Sprintf("invalid base URL: %s", rawURL))
+	}
+	host := u.Hostname()
+	isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if u.Scheme != "https" && !isLocalhost {
+		return ErrUsage(fmt.Sprintf("base URL must use HTTPS: %s", rawURL))
+	}
+	return nil
+}

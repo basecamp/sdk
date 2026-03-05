@@ -1,0 +1,13 @@
+package {{.KotlinPackage}}
+
+/** Metadata from paginated list responses. */
+data class ListMeta(
+    val totalCount: Long? = null,
+    val nextUrl: String? = null,
+)
+
+/** A paginated list result carrying items and metadata. */
+data class ListResult<T>(
+    val items: List<T>,
+    val meta: ListMeta,
+) : List<T> by items

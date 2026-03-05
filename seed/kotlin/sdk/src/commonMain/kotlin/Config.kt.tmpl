@@ -1,0 +1,43 @@
+package {{.KotlinPackage}}
+
+import io.ktor.client.engine.*
+
+/**
+ * Configuration for the {{.AppTitle}} SDK client.
+ */
+data class {{.AppTitle}}Config(
+    val baseUrl: String,
+    val accessToken: String,
+    val userAgent: String,
+    val maxRetries: Int,
+    val maxPages: Int,
+    val engine: HttpClientEngine? = null,
+) {
+    companion object {
+        const val VERSION = "0.1.0"
+        const val API_VERSION = "2026-01-01"
+        const val DEFAULT_BASE_URL = "https://3.basecampapi.com"
+    }
+
+    class Builder {
+        var baseUrl: String = DEFAULT_BASE_URL
+        var userAgent: String = "{{.AppName}}-sdk-kotlin/$VERSION"
+        var maxRetries: Int = 3
+        var maxPages: Int = 100
+        var engine: HttpClientEngine? = null
+        private var _accessToken: String = ""
+
+        fun accessToken(token: String) {
+            _accessToken = token
+        }
+
+        fun build(): {{.AppTitle}}Config = {{.AppTitle}}Config(
+            baseUrl = baseUrl,
+            accessToken = _accessToken,
+            userAgent = userAgent,
+            maxRetries = maxRetries,
+            maxPages = maxPages,
+            engine = engine,
+        )
+    }
+}

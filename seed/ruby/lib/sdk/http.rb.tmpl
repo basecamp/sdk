@@ -1,0 +1,21 @@
+require "faraday"
+require "faraday/retry"
+
+module {{.RubyModule}}
+  # HTTP transport configuration using Faraday.
+  module Http
+    def self.build_connection(config)
+      Faraday.new do |f|
+        f.request :retry, {
+          max: config.max_retries,
+          interval: 1,
+          backoff_factor: 2,
+          retry_statuses: [429, 503],
+          methods: %i[get head put delete options]
+        }
+        f.options.timeout = config.timeout
+        f.adapter Faraday.default_adapter
+      end
+    end
+  end
+end

@@ -1,0 +1,175 @@
+version: 2
+updates:
+  # Go SDK dependencies
+  - package-ecosystem: gomod
+    directory: "/go"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 10
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(go):"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # TypeScript SDK dependencies
+  - package-ecosystem: npm
+    directory: "/typescript"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 10
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(ts):"
+    labels:
+      - "dependencies"
+      - "typescript"
+
+  # Ruby SDK dependencies
+  - package-ecosystem: bundler
+    directory: "/ruby"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 10
+    groups:
+      bundler-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(ruby):"
+    labels:
+      - "dependencies"
+      - "ruby"
+
+  # Kotlin SDK dependencies
+  - package-ecosystem: gradle
+    directory: "/kotlin"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 10
+    groups:
+      gradle-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(kotlin):"
+    labels:
+      - "dependencies"
+      - "kotlin"
+
+  # Swift SDK dependencies
+  - package-ecosystem: swift
+    directory: "/swift"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 10
+    groups:
+      swift-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(swift):"
+    labels:
+      - "dependencies"
+      - "swift"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(actions):"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # Conformance runner — Go
+  - package-ecosystem: gomod
+    directory: "/conformance/runner/go"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+    groups:
+      conformance-go-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(conformance-go):"
+    labels:
+      - "dependencies"
+      - "go"
+      - "conformance"
+
+  # Conformance runner — TypeScript
+  - package-ecosystem: npm
+    directory: "/conformance/runner/typescript"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+    groups:
+      conformance-npm-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(conformance-ts):"
+    labels:
+      - "dependencies"
+      - "typescript"
+      - "conformance"
+
+  # Conformance runner — Ruby
+  - package-ecosystem: bundler
+    directory: "/conformance/runner/ruby"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+    groups:
+      conformance-bundler-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(conformance-ruby):"
+    labels:
+      - "dependencies"
+      - "ruby"
+      - "conformance"

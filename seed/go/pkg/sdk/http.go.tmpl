@@ -1,0 +1,29 @@
+package sdk
+
+import "time"
+
+// Default HTTP configuration constants.
+const (
+	DefaultMaxRetries  = 3
+	DefaultTimeout     = 30 * time.Second
+	DefaultMaxPages    = 100
+	DefaultBaseDelayMs = 1000
+)
+
+// HTTPOptions holds HTTP transport configuration.
+type HTTPOptions struct {
+	MaxRetries  int
+	Timeout     time.Duration
+	MaxPages    int
+	BaseDelayMs int
+}
+
+// DefaultHTTPOptions returns sensible defaults.
+func DefaultHTTPOptions() HTTPOptions {
+	return HTTPOptions{
+		MaxRetries:  DefaultMaxRetries,
+		Timeout:     DefaultTimeout,
+		MaxPages:    DefaultMaxPages,
+		BaseDelayMs: DefaultBaseDelayMs,
+	}
+}

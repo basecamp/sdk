@@ -1,0 +1,19 @@
+import Foundation
+
+/// Base class for all generated service classes.
+package class BaseService: Sendable {
+    package let httpClient: HTTPClient
+    package let accountId: String
+    package let baseURL: String
+
+    package init(httpClient: HTTPClient, accountId: String, baseURL: String) {
+        self.httpClient = httpClient
+        self.accountId = accountId
+        self.baseURL = baseURL
+    }
+
+    /// Builds a full URL with the account ID prefix.
+    package func url(_ path: String) -> String {
+        "\(baseURL)/\(accountId)\(path)"
+    }
+}

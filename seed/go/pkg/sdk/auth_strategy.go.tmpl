@@ -1,0 +1,41 @@
+package sdk
+
+import (
+	"context"
+	"net/http"
+)
+
+// TokenProvider returns an access token for authenticating API requests.
+type TokenProvider interface {
+	AccessToken(ctx context.Context) (string, error)
+}
+
+// StaticTokenProvider holds a fixed access token.
+type StaticTokenProvider struct {
+	Token string
+}
+
+// AccessToken returns the static token.
+func (s *StaticTokenProvider) AccessToken(_ context.Context) (string, error) {
+	return s.Token, nil
+}
+
+// AuthStrategy controls how authentication is applied to HTTP requests.
+type AuthStrategy interface {
+	Authenticate(ctx context.Context, req *http.Request) error
+}
+
+// BearerAuth implements AuthStrategy using OAuth Bearer tokens.
+type BearerAuth struct {
+	TokenProvider TokenProvider
+}
+
+// Authenticate sets the Authorization header with a Bearer token.
+func (b *BearerAuth) Authenticate(ctx context.Context, req *http.Request) error {
+	token, err := b.TokenProvider.AccessToken(ctx)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return nil
+}

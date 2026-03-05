@@ -1,0 +1,46 @@
+package {{.KotlinPackage}}
+
+import {{.KotlinPackage}}.http.{{.AppTitle}}HttpClient
+
+/**
+ * The main entry point for the {{.AppTitle}} SDK.
+ *
+ * ```kotlin
+ * val client = {{.AppTitle}}Client {
+ *     accessToken("your-token")
+ * }
+ * val account = client.forAccount("12345")
+ * val projects = account.projects.list()
+ * ```
+ */
+class {{.AppTitle}}Client(
+    configure: {{.AppTitle}}Config.Builder.() -> Unit = {}
+) : AutoCloseable {
+    val config: {{.AppTitle}}Config
+    internal val httpClient: {{.AppTitle}}HttpClient
+
+    init {
+        val builder = {{.AppTitle}}Config.Builder()
+        builder.configure()
+        config = builder.build()
+
+        // Validate HTTPS for non-localhost URLs
+        val url = io.ktor.http.Url(config.baseUrl)
+        val isLocalhost = url.host in listOf("localhost", "127.0.0.1", "::1")
+        if (url.protocol.name != "https" && !isLocalhost) {
+            throw {{.AppTitle}}Exception.Usage("Base URL must use HTTPS: ${config.baseUrl}")
+        }
+
+        httpClient = {{.AppTitle}}HttpClient(config)
+    }
+
+    /** Returns an AccountClient bound to the specified account. */
+    fun forAccount(accountId: String): AccountClient {
+        require(accountId.isNotBlank()) { "Account ID must not be empty" }
+        return AccountClient(this, accountId)
+    }
+
+    override fun close() {
+        httpClient.close()
+    }
+}

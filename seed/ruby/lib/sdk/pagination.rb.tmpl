@@ -1,0 +1,33 @@
+module {{.RubyModule}}
+  # Pagination metadata from response headers.
+  class ListMeta
+    attr_reader :total_count, :next_url
+
+    def initialize(total_count: nil, next_url: nil)
+      @total_count = total_count
+      @next_url = next_url
+    end
+
+    def self.from_response(response)
+      total_count = response.headers["X-Total-Count"]&.to_i
+      next_url = parse_link_next(response.headers["Link"])
+      new(total_count: total_count, next_url: next_url)
+    end
+
+    def self.parse_link_next(header)
+      return nil if header.nil?
+      match = header.match(/<([^>]+)>;\s*rel="next"/)
+      match&.[](1)
+    end
+  end
+
+  # Array subclass that carries pagination metadata.
+  class ListResult < Array
+    attr_reader :meta
+
+    def initialize(items, meta)
+      super(items)
+      @meta = meta
+    end
+  end
+end

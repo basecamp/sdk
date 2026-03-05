@@ -1,0 +1,55 @@
+module {{.RubyModule}}
+  # Observability hooks for SDK operations.
+  module HooksInterface
+    def on_request_start(method, url, attempt) = nil
+    def on_request_end(method, url, status_code, duration_ms) = nil
+    def on_retry(method, url, attempt, error, delay_sec) = nil
+  end
+
+  # No-op hooks implementation.
+  class NoopHooks
+    include HooksInterface
+  end
+
+  # Chains multiple hooks implementations.
+  class ChainHooks
+    include HooksInterface
+
+    def initialize(*hooks)
+      @hooks = hooks.flatten
+    end
+
+    def on_request_start(method, url, attempt)
+      @hooks.each { |h| h.on_request_start(method, url, attempt) }
+    end
+
+    def on_request_end(method, url, status_code, duration_ms)
+      @hooks.each { |h| h.on_request_end(method, url, status_code, duration_ms) }
+    end
+
+    def on_retry(method, url, attempt, error, delay_sec)
+      @hooks.each { |h| h.on_retry(method, url, attempt, error, delay_sec) }
+    end
+  end
+
+  # Hooks that log via Ruby's Logger.
+  class LoggerHooks
+    include HooksInterface
+
+    def initialize(logger)
+      @logger = logger
+    end
+
+    def on_request_start(method, url, attempt)
+      @logger.info("[{{.AppName}}-sdk] #{method} #{url} (attempt #{attempt})")
+    end
+
+    def on_request_end(method, url, status_code, duration_ms)
+      @logger.info("[{{.AppName}}-sdk] #{method} #{url} → #{status_code} (#{duration_ms}ms)")
+    end
+
+    def on_retry(method, url, attempt, error, delay_sec)
+      @logger.warn("[{{.AppName}}-sdk] retry #{method} #{url} attempt=#{attempt} error=#{error.message} delay=#{delay_sec}s")
+    end
+  end
+end

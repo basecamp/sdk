@@ -1,0 +1,23 @@
+import Foundation
+
+/// Metadata from paginated list responses.
+public struct ListMeta: Sendable {
+    public let totalCount: Int?
+    public let nextURL: String?
+
+    public init(totalCount: Int? = nil, nextURL: String? = nil) {
+        self.totalCount = totalCount
+        self.nextURL = nextURL
+    }
+}
+
+/// A paginated list result carrying items and metadata.
+public struct ListResult<T: Sendable>: Sendable {
+    public let items: [T]
+    public let meta: ListMeta
+
+    public init(items: [T], meta: ListMeta) {
+        self.items = items
+        self.meta = meta
+    }
+}

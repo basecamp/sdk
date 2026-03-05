@@ -1,0 +1,21 @@
+module {{.RubyModule}}
+  # Strategy for authenticating API requests.
+  module AuthStrategy
+    def authenticate(request)
+      raise NotImplementedError
+    end
+  end
+
+  # Bearer token authentication.
+  class BearerAuth
+    include AuthStrategy
+
+    def initialize(token)
+      @token = token
+    end
+
+    def authenticate(request)
+      request.headers["Authorization"] = "Bearer #{@token}"
+    end
+  end
+end

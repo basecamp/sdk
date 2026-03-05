@@ -1,0 +1,107 @@
+/** Error codes matching Go/Ruby/Swift/Kotlin SDKs. */
+export const ErrorCode = {
+  Usage: 'usage',
+  NotFound: 'not_found',
+  Auth: 'auth_required',
+  Forbidden: 'forbidden',
+  RateLimit: 'rate_limit',
+  Network: 'network',
+  API: 'api_error',
+  Validation: 'validation',
+  Ambiguous: 'ambiguous',
+} as const
+
+export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode]
+
+/** Exit codes for CLI applications. */
+export const ExitCode: Record<string, number> = {
+  [ErrorCode.Usage]: 1,
+  [ErrorCode.NotFound]: 2,
+  [ErrorCode.Auth]: 3,
+  [ErrorCode.Forbidden]: 4,
+  [ErrorCode.RateLimit]: 5,
+  [ErrorCode.Network]: 6,
+  [ErrorCode.API]: 7,
+  [ErrorCode.Ambiguous]: 8,
+  [ErrorCode.Validation]: 9,
+}
+
+/** Structured error for {{.AppTitle}} API errors. */
+export class {{.AppTitle}}Error extends Error {
+  readonly code: ErrorCodeType
+  readonly hint?: string
+  readonly httpStatus?: number
+  readonly retryable: boolean
+  readonly requestId?: string
+  readonly cause?: Error
+
+  constructor(opts: {
+    code: ErrorCodeType
+    message: string
+    hint?: string
+    httpStatus?: number
+    retryable?: boolean
+    requestId?: string
+    cause?: Error
+  }) {
+    super(opts.hint ? `${opts.message}: ${opts.hint}` : opts.message)
+    this.name = '{{.AppTitle}}Error'
+    this.code = opts.code
+    this.hint = opts.hint
+    this.httpStatus = opts.httpStatus
+    this.retryable = opts.retryable ?? false
+    this.requestId = opts.requestId
+    this.cause = opts.cause
+  }
+
+  get exitCode(): number {
+    return ExitCode[this.code] ?? 7
+  }
+}
+
+const MAX_MESSAGE_LENGTH = 500
+
+function truncate(s: string | undefined): string | undefined {
+  if (!s) return undefined
+  return s.length <= MAX_MESSAGE_LENGTH ? s : s.slice(0, MAX_MESSAGE_LENGTH - 3) + '...'
+}
+
+/** Creates a {{.AppTitle}}Error from an HTTP response. */
+export async function errorFromResponse(response: Response): Promise<{{.AppTitle}}Error> {
+  let errorMsg: string | undefined
+  let hint: string | undefined
+
+  try {
+    const body = await response.json()
+    errorMsg = body.error
+    hint = body.error_description
+  } catch {
+    // ignore parse errors
+  }
+
+  const message = truncate(errorMsg || response.statusText) || 'Unknown error'
+  const requestId = response.headers.get('X-Request-Id') ?? undefined
+
+  switch (response.status) {
+    case 401:
+      return new {{.AppTitle}}Error({ code: ErrorCode.Auth, message, hint: truncate(hint), httpStatus: 401, requestId })
+    case 403:
+      return new {{.AppTitle}}Error({ code: ErrorCode.Forbidden, message, hint: truncate(hint), httpStatus: 403, requestId })
+    case 404:
+      return new {{.AppTitle}}Error({ code: ErrorCode.NotFound, message, hint: truncate(hint), httpStatus: 404, requestId })
+    case 429:
+      return new {{.AppTitle}}Error({ code: ErrorCode.RateLimit, message, hint: truncate(hint), httpStatus: 429, retryable: true, requestId })
+    case 400:
+    case 422:
+      return new {{.AppTitle}}Error({ code: ErrorCode.Validation, message, hint: truncate(hint), httpStatus: response.status, requestId })
+    default:
+      return new {{.AppTitle}}Error({
+        code: ErrorCode.API,
+        message,
+        hint: truncate(hint),
+        httpStatus: response.status,
+        retryable: response.status >= 500,
+        requestId,
+      })
+  }
+}

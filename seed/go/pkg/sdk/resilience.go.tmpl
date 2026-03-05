@@ -1,0 +1,126 @@
+package sdk
+
+import (
+	"sync"
+	"time"
+)
+
+// CircuitBreaker implements the circuit breaker pattern.
+type CircuitBreaker struct {
+	mu            sync.Mutex
+	failures      int
+	threshold     int
+	resetTimeout  time.Duration
+	lastFailure   time.Time
+	open          bool
+}
+
+// NewCircuitBreaker creates a new CircuitBreaker.
+func NewCircuitBreaker(threshold int, resetTimeout time.Duration) *CircuitBreaker {
+	return &CircuitBreaker{
+		threshold:    threshold,
+		resetTimeout: resetTimeout,
+	}
+}
+
+// Allow returns true if a request should be allowed through.
+func (cb *CircuitBreaker) Allow() bool {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if !cb.open {
+		return true
+	}
+	if time.Since(cb.lastFailure) > cb.resetTimeout {
+		cb.open = false
+		cb.failures = 0
+		return true
+	}
+	return false
+}
+
+// RecordSuccess records a successful request.
+func (cb *CircuitBreaker) RecordSuccess() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.failures = 0
+	cb.open = false
+}
+
+// RecordFailure records a failed request.
+func (cb *CircuitBreaker) RecordFailure() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.failures++
+	cb.lastFailure = time.Now()
+	if cb.failures >= cb.threshold {
+		cb.open = true
+	}
+}
+
+// RateLimiter implements a token bucket rate limiter.
+type RateLimiter struct {
+	mu       sync.Mutex
+	tokens   float64
+	maxRate  float64
+	lastTime time.Time
+}
+
+// NewRateLimiter creates a new RateLimiter.
+func NewRateLimiter(requestsPerSecond float64) *RateLimiter {
+	return &RateLimiter{
+		tokens:   requestsPerSecond,
+		maxRate:  requestsPerSecond,
+		lastTime: time.Now(),
+	}
+}
+
+// Allow returns true if a request should be allowed.
+func (rl *RateLimiter) Allow() bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	elapsed := now.Sub(rl.lastTime).Seconds()
+	rl.tokens += elapsed * rl.maxRate
+	if rl.tokens > rl.maxRate {
+		rl.tokens = rl.maxRate
+	}
+	rl.lastTime = now
+
+	if rl.tokens >= 1 {
+		rl.tokens--
+		return true
+	}
+	return false
+}
+
+// Bulkhead limits concurrent access to a resource.
+type Bulkhead struct {
+	sem chan struct{}
+}
+
+// NewBulkhead creates a new Bulkhead with the given concurrency limit.
+func NewBulkhead(maxConcurrent int) *Bulkhead {
+	return &Bulkhead{sem: make(chan struct{}, maxConcurrent)}
+}
+
+// Acquire blocks until a slot is available.
+func (b *Bulkhead) Acquire() {
+	b.sem <- struct{}{}
+}
+
+// Release frees a slot.
+func (b *Bulkhead) Release() {
+	<-b.sem
+}
+
+// TryAcquire attempts to acquire a slot without blocking.
+func (b *Bulkhead) TryAcquire() bool {
+	select {
+	case b.sem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}

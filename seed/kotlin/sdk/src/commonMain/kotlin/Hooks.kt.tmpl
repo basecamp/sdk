@@ -1,0 +1,24 @@
+package {{.KotlinPackage}}
+
+/** Observability hooks for SDK operations. */
+interface {{.AppTitle}}Hooks {
+    fun onRequestStart(method: String, url: String, attempt: Int) {}
+    fun onRequestEnd(method: String, url: String, statusCode: Int, durationMs: Long) {}
+    fun onRetry(method: String, url: String, attempt: Int, error: Throwable, delaySec: Double) {}
+}
+
+/** No-op hooks implementation. */
+object Noop{{.AppTitle}}Hooks : {{.AppTitle}}Hooks
+
+/** Chains multiple hooks implementations. */
+class Chain{{.AppTitle}}Hooks(private val hooks: List<{{.AppTitle}}Hooks>) : {{.AppTitle}}Hooks {
+    override fun onRequestStart(method: String, url: String, attempt: Int) {
+        hooks.forEach { it.onRequestStart(method, url, attempt) }
+    }
+    override fun onRequestEnd(method: String, url: String, statusCode: Int, durationMs: Long) {
+        hooks.forEach { it.onRequestEnd(method, url, statusCode, durationMs) }
+    }
+    override fun onRetry(method: String, url: String, attempt: Int, error: Throwable, delaySec: Double) {
+        hooks.forEach { it.onRetry(method, url, attempt, error, delaySec) }
+    }
+}

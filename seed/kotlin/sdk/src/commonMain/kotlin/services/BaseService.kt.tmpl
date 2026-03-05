@@ -1,0 +1,13 @@
+package {{.KotlinPackage}}.services
+
+import {{.KotlinPackage}}.{{.AppTitle}}Client
+
+/** Base class for all generated service classes. */
+abstract class BaseService(
+    protected val client: {{.AppTitle}}Client,
+    protected val accountId: String,
+) {
+    /** Builds a URL with the account ID prefix. */
+    protected fun url(path: String): String =
+        "${client.config.baseUrl.trimEnd('/')}/$accountId$path"
+}

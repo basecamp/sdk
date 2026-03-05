@@ -1,0 +1,9 @@
+package {{.KotlinPackage}}
+
+/** Client bound to a specific account. */
+class AccountClient internal constructor(
+    internal val client: {{.AppTitle}}Client,
+    val accountId: String,
+) {
+    // Generated service accessors will be added here by the code generator.
+}

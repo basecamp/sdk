@@ -1,0 +1,29 @@
+module {{.RubyModule}}
+  module Services
+    # Base class for all generated service classes.
+    class BaseService
+      def initialize(client, account_id)
+        @client = client
+        @account_id = account_id
+      end
+
+      private
+
+      def get(path)
+        @client.request(:get, "/#{@account_id}#{path}")
+      end
+
+      def post(path, body: nil)
+        @client.request(:post, "/#{@account_id}#{path}", body: body)
+      end
+
+      def put(path, body: nil)
+        @client.request(:put, "/#{@account_id}#{path}", body: body)
+      end
+
+      def delete(path)
+        @client.request(:delete, "/#{@account_id}#{path}")
+      end
+    end
+  end
+end

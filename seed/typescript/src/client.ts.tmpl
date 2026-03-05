@@ -1,0 +1,145 @@
+import { {{.AppTitle}}Error, ErrorCode, errorFromResponse } from './errors.js'
+import type { AuthStrategy } from './auth-strategy.js'
+import { BearerAuth } from './auth-strategy.js'
+import type { Hooks } from './hooks.js'
+import { noopHooks } from './hooks.js'
+
+/** SDK version. */
+export const VERSION = '0.1.0'
+
+/** API version this SDK targets. */
+export const API_VERSION = '2026-01-01'
+
+/** Client configuration. */
+export interface ClientConfig {
+  /** Access token for authentication. */
+  accessToken?: string
+  /** Custom authentication strategy. */
+  auth?: AuthStrategy
+  /** Base URL for the API. Defaults to https://3.basecampapi.com. */
+  baseUrl?: string
+  /** User-Agent header. */
+  userAgent?: string
+  /** Maximum retry attempts. Defaults to 3. */
+  maxRetries?: number
+  /** Request timeout in milliseconds. Defaults to 30000. */
+  timeout?: number
+  /** Maximum pages for auto-pagination. Defaults to 100. */
+  maxPages?: number
+  /** Observability hooks. */
+  hooks?: Hooks
+}
+
+/** Creates a configured {{.AppTitle}} API client. */
+export function createClient(config: ClientConfig) {
+  const baseUrl = config.baseUrl ?? 'https://3.basecampapi.com'
+  const userAgent = config.userAgent ?? `{{.AppName}}-sdk-ts/${VERSION}`
+  const maxRetries = config.maxRetries ?? 3
+  const hooks = config.hooks ?? noopHooks()
+
+  // Validate HTTPS for non-localhost URLs
+  const url = new URL(baseUrl)
+  const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+  if (url.protocol !== 'https:' && !isLocalhost) {
+    throw new {{.AppTitle}}Error({
+      code: ErrorCode.Usage,
+      message: `Base URL must use HTTPS: ${baseUrl}`,
+    })
+  }
+
+  const auth: AuthStrategy = config.auth ?? new BearerAuth(config.accessToken ?? '')
+
+  async function doRequest(method: string, path: string, body?: unknown): Promise<Response> {
+    const fullUrl = baseUrl.replace(/\/$/, '') + path
+    let lastError: Error | undefined
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const headers: Record<string, string> = {
+        'User-Agent': userAgent,
+        'Accept': 'application/json',
+      }
+
+      await auth.authenticate(headers)
+
+      if (body) {
+        headers['Content-Type'] = 'application/json'
+      }
+
+      hooks.onRequestStart?.(method, fullUrl, attempt)
+      const start = Date.now()
+
+      try {
+        const response = await fetch(fullUrl, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: config.timeout ? AbortSignal.timeout(config.timeout) : undefined,
+        })
+
+        hooks.onRequestEnd?.(method, fullUrl, response.status, Date.now() - start)
+
+        if (response.ok) return response
+
+        const sdkError = await errorFromResponse(response)
+        lastError = sdkError
+
+        if (sdkError.retryable && attempt < maxRetries && isIdempotent(method)) {
+          const retryAfter = parseRetryAfter(response.headers.get('Retry-After'))
+          const delay = retryAfter ?? (Math.pow(2, attempt) * 1000 + Math.random() * 100)
+          hooks.onRetry?.(method, fullUrl, attempt, sdkError, delay / 1000)
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+
+        throw sdkError
+      } catch (err) {
+        if (err instanceof {{.AppTitle}}Error) throw err
+        lastError = err instanceof Error ? err : new Error(String(err))
+        // Only retry network errors for idempotent methods
+        if (isIdempotent(method) && attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000 + Math.random() * 100
+          await new Promise(r => setTimeout(r, delay))
+          continue
+        }
+        throw new {{.AppTitle}}Error({
+          code: ErrorCode.Network,
+          message: 'Network error',
+          retryable: isIdempotent(method),
+          cause: lastError,
+        })
+      }
+    }
+
+    throw lastError
+  }
+
+  function forAccount(accountId: string) {
+    if (!accountId) throw new {{.AppTitle}}Error({ code: ErrorCode.Usage, message: 'Account ID required' })
+    return {
+      accountId,
+      request: doRequest,
+      // Services will be added by generated code
+    }
+  }
+
+  return { forAccount, request: doRequest }
+}
+
+const IDEMPOTENT_METHODS = new Set(['GET', 'HEAD', 'PUT', 'DELETE', 'OPTIONS'])
+
+function isIdempotent(method: string): boolean {
+  return IDEMPOTENT_METHODS.has(method.toUpperCase())
+}
+
+/** Parses a Retry-After header value into milliseconds, or undefined. */
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (!isNaN(seconds) && seconds > 0) return seconds * 1000
+  const date = Date.parse(value)
+  if (!isNaN(date)) {
+    const diff = date - Date.now()
+    return diff > 0 ? diff : undefined
+  }
+  return undefined
+}

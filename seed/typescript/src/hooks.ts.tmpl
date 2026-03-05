@@ -1,0 +1,41 @@
+/** Observability hooks for SDK operations. */
+export interface Hooks {
+  onRequestStart?(method: string, url: string, attempt: number): void
+  onRequestEnd?(method: string, url: string, statusCode: number, durationMs: number): void
+  onRetry?(method: string, url: string, attempt: number, error: Error, delaySec: number): void
+}
+
+/** Returns hooks that do nothing. */
+export function noopHooks(): Hooks {
+  return {}
+}
+
+/** Returns hooks that log to console. */
+export function consoleHooks(): Hooks {
+  return {
+    onRequestStart(method, url, attempt) {
+      console.log(`[{{.AppName}}-sdk] ${method} ${url} (attempt ${attempt})`)
+    },
+    onRequestEnd(method, url, statusCode, durationMs) {
+      console.log(`[{{.AppName}}-sdk] ${method} ${url} → ${statusCode} (${durationMs}ms)`)
+    },
+    onRetry(method, url, attempt, error, delaySec) {
+      console.warn(`[{{.AppName}}-sdk] retry ${method} ${url} attempt=${attempt} error=${error.message} delay=${delaySec}s`)
+    },
+  }
+}
+
+/** Chains multiple hooks implementations together. */
+export function chainHooks(...hooks: Hooks[]): Hooks {
+  return {
+    onRequestStart(method, url, attempt) {
+      for (const h of hooks) h.onRequestStart?.(method, url, attempt)
+    },
+    onRequestEnd(method, url, statusCode, durationMs) {
+      for (const h of hooks) h.onRequestEnd?.(method, url, statusCode, durationMs)
+    },
+    onRetry(method, url, attempt, error, delaySec) {
+      for (const h of hooks) h.onRetry?.(method, url, attempt, error, delaySec)
+    },
+  }
+}

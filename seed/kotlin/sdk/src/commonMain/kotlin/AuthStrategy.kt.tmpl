@@ -1,0 +1,16 @@
+package {{.KotlinPackage}}
+
+import io.ktor.client.request.*
+
+/** Strategy for authenticating API requests. */
+interface AuthStrategy {
+    suspend fun authenticate(request: HttpRequestBuilder)
+}
+
+/** Bearer token authentication. */
+class BearerAuth(private val tokenProvider: TokenProvider) : AuthStrategy {
+    override suspend fun authenticate(request: HttpRequestBuilder) {
+        val token = tokenProvider.accessToken()
+        request.headers.append("Authorization", "Bearer $token")
+    }
+}

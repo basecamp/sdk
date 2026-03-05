@@ -1,0 +1,57 @@
+package sdk
+
+import "log/slog"
+
+// Hooks provides observability into SDK operations.
+type Hooks interface {
+	OnRequestStart(method, url string, attempt int)
+	OnRequestEnd(method, url string, statusCode, durationMs int)
+	OnRetry(method, url string, attempt int, err error, delaySec float64)
+}
+
+// NoopHooks is a no-op implementation of Hooks.
+type NoopHooks struct{}
+
+func (NoopHooks) OnRequestStart(string, string, int)               {}
+func (NoopHooks) OnRequestEnd(string, string, int, int)            {}
+func (NoopHooks) OnRetry(string, string, int, error, float64)      {}
+
+// ChainHooks composes multiple Hooks implementations.
+type ChainHooks struct {
+	Hooks []Hooks
+}
+
+func (c ChainHooks) OnRequestStart(method, url string, attempt int) {
+	for _, h := range c.Hooks {
+		h.OnRequestStart(method, url, attempt)
+	}
+}
+
+func (c ChainHooks) OnRequestEnd(method, url string, statusCode, durationMs int) {
+	for _, h := range c.Hooks {
+		h.OnRequestEnd(method, url, statusCode, durationMs)
+	}
+}
+
+func (c ChainHooks) OnRetry(method, url string, attempt int, err error, delaySec float64) {
+	for _, h := range c.Hooks {
+		h.OnRetry(method, url, attempt, err, delaySec)
+	}
+}
+
+// SlogHooks logs SDK operations via slog.
+type SlogHooks struct {
+	Logger *slog.Logger
+}
+
+func (s SlogHooks) OnRequestStart(method, url string, attempt int) {
+	s.Logger.Info("request start", "method", method, "url", url, "attempt", attempt)
+}
+
+func (s SlogHooks) OnRequestEnd(method, url string, statusCode, durationMs int) {
+	s.Logger.Info("request end", "method", method, "url", url, "status", statusCode, "duration_ms", durationMs)
+}
+
+func (s SlogHooks) OnRetry(method, url string, attempt int, err error, delaySec float64) {
+	s.Logger.Warn("retry", "method", method, "url", url, "attempt", attempt, "error", err, "delay_sec", delaySec)
+}

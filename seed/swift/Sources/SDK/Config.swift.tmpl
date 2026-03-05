@@ -1,0 +1,44 @@
+import Foundation
+
+/// Configuration for the {{.AppTitle}} SDK client.
+public struct {{.SwiftPackage}}Config: Sendable {
+    /// SDK version.
+    public static let version = "0.1.0"
+
+    /// API version this SDK targets.
+    public static let apiVersion = "2026-01-01"
+
+    /// Base URL for the API.
+    public let baseURL: String
+
+    /// User-Agent header identifying the application.
+    public let userAgent: String
+
+    /// Whether retry logic is enabled.
+    public let enableRetry: Bool
+
+    /// Whether ETag caching is enabled.
+    public let enableCache: Bool
+
+    /// Maximum number of pages for auto-pagination.
+    public let maxPages: Int
+
+    /// Request timeout interval in seconds.
+    public let timeoutInterval: TimeInterval
+
+    public init(
+        baseURL: String = "https://3.basecampapi.com",
+        userAgent: String = "{{.AppName}}-sdk-swift/\(version)",
+        enableRetry: Bool = true,
+        enableCache: Bool = true,
+        maxPages: Int = 100,
+        timeoutInterval: TimeInterval = 30
+    ) {
+        self.baseURL = baseURL
+        self.userAgent = userAgent
+        self.enableRetry = enableRetry
+        self.enableCache = enableCache
+        self.maxPages = maxPages
+        self.timeoutInterval = timeoutInterval
+    }
+}

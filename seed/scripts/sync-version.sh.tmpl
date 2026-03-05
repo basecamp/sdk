@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+#
+# Reads VERSION from the repo root and updates all language-specific version
+# constants atomically. Run via: make bump VERSION=x.y.z
+#
+set -euo pipefail
+
+VERSION="${1:?Usage: sync-version.sh <version>}"
+
+echo "Syncing version to $VERSION across all languages..."
+
+# Go
+if [ -f go/pkg/sdk/version.go ]; then
+  perl -pi -e "s/Version = \".*\"/Version = \"$VERSION\"/" go/pkg/sdk/version.go
+  echo "  Updated go/pkg/sdk/version.go"
+fi
+
+# TypeScript
+if [ -f typescript/package.json ]; then
+  cd typescript && npm version "$VERSION" --no-git-tag-version --allow-same-version && cd ..
+  echo "  Updated typescript/package.json"
+fi
+
+# Ruby
+if [ -f ruby/lib/*/version.rb ]; then
+  perl -pi -e "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" ruby/lib/*/version.rb
+  echo "  Updated ruby version.rb"
+fi
+
+# Swift
+SWIFT_CONFIG=$(find swift/Sources -name "*Config.swift" -maxdepth 3 2>/dev/null | head -1)
+if [ -n "$SWIFT_CONFIG" ]; then
+  perl -pi -e "s/static let version = \".*\"/static let version = \"$VERSION\"/" "$SWIFT_CONFIG"
+  echo "  Updated $SWIFT_CONFIG"
+fi
+
+# Kotlin
+if [ -f kotlin/sdk/build.gradle.kts ]; then
+  perl -pi -e "s/version = \".*\"/version = \"$VERSION\"/" kotlin/sdk/build.gradle.kts
+  echo "  Updated kotlin/sdk/build.gradle.kts"
+fi
+
+echo "Done. All versions set to $VERSION."

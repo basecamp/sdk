@@ -1,0 +1,20 @@
+import Foundation
+
+/// Strategy for authenticating API requests.
+public protocol AuthStrategy: Sendable {
+    func authenticate(_ request: inout URLRequest) async throws
+}
+
+/// Bearer token authentication.
+public struct BearerAuth: AuthStrategy {
+    private let tokenProvider: any TokenProvider
+
+    public init(tokenProvider: any TokenProvider) {
+        self.tokenProvider = tokenProvider
+    }
+
+    public func authenticate(_ request: inout URLRequest) async throws {
+        let token = try await tokenProvider.accessToken()
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    }
+}

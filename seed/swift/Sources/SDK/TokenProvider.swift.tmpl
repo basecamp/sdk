@@ -1,0 +1,19 @@
+import Foundation
+
+/// Provides access tokens for authentication.
+public protocol TokenProvider: Sendable {
+    func accessToken() async throws -> String
+}
+
+/// A token provider that returns a fixed token.
+public struct StaticTokenProvider: TokenProvider {
+    private let token: String
+
+    public init(_ token: String) {
+        self.token = token
+    }
+
+    public func accessToken() async throws -> String {
+        token
+    }
+}

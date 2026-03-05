@@ -1,0 +1,62 @@
+require "json"
+
+module {{.RubyModule}}
+  # Main client for the {{.AppTitle}} API.
+  class Client
+    attr_reader :config
+
+    def initialize(access_token: nil, auth: nil, **options)
+      @config = Config.new(**options)
+      @auth = auth || BearerAuth.new(access_token || ENV.fetch("{{.AppName | upper}}_ACCESS_TOKEN"))
+      @hooks = options[:hooks] || NoopHooks.new
+
+      require_https!(@config.base_url) unless localhost?(@config.base_url)
+    end
+
+    # Returns an AccountClient bound to the given account ID.
+    def for_account(account_id)
+      raise Error.new(code: "usage", message: "Account ID required") if account_id.nil? || account_id.empty?
+      AccountClient.new(self, account_id)
+    end
+
+    # Performs an authenticated HTTP request.
+    def request(method, path, body: nil)
+      url = "#{@config.base_url.chomp('/')}#{path}"
+      connection.send(method, url) do |req|
+        @auth.authenticate(req)
+        req.headers["User-Agent"] = @config.user_agent
+        req.headers["Accept"] = "application/json"
+        if body
+          req.headers["Content-Type"] = "application/json"
+          req.body = body.is_a?(String) ? body : JSON.generate(body)
+        end
+      end
+    end
+
+    private
+
+    def connection
+      @connection ||= Http.build_connection(@config)
+    end
+
+    def require_https!(url)
+      uri = URI.parse(url)
+      raise Error.new(code: "usage", message: "Base URL must use HTTPS: #{url}") unless uri.scheme == "https"
+    end
+
+    def localhost?(url)
+      host = URI.parse(url).host
+      %w[localhost 127.0.0.1 ::1].include?(host)
+    end
+  end
+
+  # Client bound to a specific account.
+  class AccountClient
+    attr_reader :client, :account_id
+
+    def initialize(client, account_id)
+      @client = client
+      @account_id = account_id
+    end
+  end
+end

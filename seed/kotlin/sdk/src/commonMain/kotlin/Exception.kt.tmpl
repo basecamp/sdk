@@ -1,0 +1,70 @@
+package {{.KotlinPackage}}
+
+/**
+ * Sealed class hierarchy for {{.AppTitle}} API errors.
+ */
+sealed class {{.AppTitle}}Exception(
+    message: String,
+    val code: String,
+    val hint: String? = null,
+    val httpStatus: Int? = null,
+    val retryable: Boolean = false,
+    val requestId: String? = null,
+    cause: Throwable? = null,
+) : Exception(message, cause) {
+
+    val exitCode: Int get() = exitCodeFor(code)
+
+    class Auth(message: String = "Authentication required", hint: String? = null, requestId: String? = null)
+        : {{.AppTitle}}Exception(message, CODE_AUTH, hint, 401, false, requestId)
+
+    class Forbidden(message: String = "Access denied", hint: String? = null, requestId: String? = null)
+        : {{.AppTitle}}Exception(message, CODE_FORBIDDEN, hint, 403, false, requestId)
+
+    class NotFound(message: String = "Resource not found", hint: String? = null, requestId: String? = null)
+        : {{.AppTitle}}Exception(message, CODE_NOT_FOUND, hint, 404, false, requestId)
+
+    class RateLimit(val retryAfterSeconds: Int? = null, message: String = "Rate limit exceeded", hint: String? = null, requestId: String? = null)
+        : {{.AppTitle}}Exception(message, CODE_RATE_LIMIT, hint, 429, true, requestId)
+
+    class Network(message: String = "Network error", cause: Throwable? = null)
+        : {{.AppTitle}}Exception(message, CODE_NETWORK, "Check your network connection", null, true, null, cause)
+
+    class Api(message: String, httpStatus: Int, hint: String? = null, retryable: Boolean = httpStatus in 500..599, requestId: String? = null)
+        : {{.AppTitle}}Exception(message, CODE_API, hint, httpStatus, retryable, requestId)
+
+    class Validation(message: String, hint: String? = null, httpStatus: Int = 422, requestId: String? = null)
+        : {{.AppTitle}}Exception(message, CODE_VALIDATION, hint, httpStatus, false, requestId)
+
+    class Usage(message: String, hint: String? = null)
+        : {{.AppTitle}}Exception(message, CODE_USAGE, hint)
+
+    companion object {
+        const val CODE_AUTH = "auth_required"
+        const val CODE_FORBIDDEN = "forbidden"
+        const val CODE_NOT_FOUND = "not_found"
+        const val CODE_RATE_LIMIT = "rate_limit"
+        const val CODE_NETWORK = "network"
+        const val CODE_API = "api_error"
+        const val CODE_VALIDATION = "validation"
+        const val CODE_USAGE = "usage"
+
+        fun exitCodeFor(code: String): Int = when (code) {
+            CODE_USAGE -> 1; CODE_NOT_FOUND -> 2; CODE_AUTH -> 3; CODE_FORBIDDEN -> 4
+            CODE_RATE_LIMIT -> 5; CODE_NETWORK -> 6; CODE_API -> 7; CODE_VALIDATION -> 9
+            else -> 7
+        }
+
+        fun fromHttpStatus(httpStatus: Int, message: String? = null, hint: String? = null, requestId: String? = null): {{.AppTitle}}Exception {
+            val msg = message ?: "Request failed (HTTP $httpStatus)"
+            return when (httpStatus) {
+                401 -> Auth(msg, hint, requestId)
+                403 -> Forbidden(msg, hint, requestId)
+                404 -> NotFound(msg, hint, requestId)
+                429 -> RateLimit(message = msg, hint = hint, requestId = requestId)
+                400, 422 -> Validation(msg, hint, httpStatus, requestId)
+                else -> Api(msg, httpStatus, hint, httpStatus in 500..599, requestId)
+            }
+        }
+    }
+}

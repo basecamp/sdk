@@ -1,0 +1,21 @@
+module {{.RubyModule}}
+  # Client configuration with sensible defaults.
+  class Config
+    attr_reader :base_url, :user_agent, :max_retries, :timeout, :max_pages
+
+    def initialize(
+      base_url: "https://3.basecampapi.com",
+      user_agent: "{{.AppName}}-sdk-ruby/#{VERSION}",
+      max_retries: 3,
+      timeout: 30,
+      max_pages: 100,
+      **_options
+    )
+      @base_url = base_url
+      @user_agent = user_agent
+      @max_retries = max_retries
+      @timeout = timeout
+      @max_pages = max_pages
+    end
+  end
+end

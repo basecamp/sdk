@@ -1,0 +1,18 @@
+Gem::Specification.new do |spec|
+  spec.name          = "{{.RubyGem}}"
+  spec.version       = File.read(File.expand_path("lib/sdk/version.rb", __dir__))[/VERSION = "(.+)"/, 1]
+  spec.authors       = ["37signals"]
+  spec.summary       = "{{.AppTitle}} SDK for Ruby"
+  spec.description   = "Official Ruby SDK for the {{.AppTitle}} API"
+  spec.homepage      = "https://github.com/{{.GithubOrg}}/{{.GithubRepo}}"
+  spec.license       = "MIT"
+
+  spec.required_ruby_version = ">= 3.2"
+
+  spec.files = Dir["lib/**/*", "README.md", "LICENSE"]
+  spec.require_paths = ["lib"]
+
+  spec.add_dependency "faraday", ">= 2.0", "< 3.0"
+  spec.add_dependency "faraday-retry", "~> 2.0"
+  spec.add_dependency "zeitwerk", "~> 2.6"
+end

@@ -1,0 +1,36 @@
+module {{.RubyModule}}
+  module Security
+    SENSITIVE_HEADERS = %w[authorization cookie set-cookie x-api-key].freeze
+    MAX_STRING_LENGTH = 500
+
+    # Returns a copy of headers with sensitive values redacted.
+    def self.redact_headers(headers)
+      headers.transform_values.with_index do |value, _|
+        key = headers.keys[_]
+        SENSITIVE_HEADERS.include?(key.to_s.downcase) ? "[REDACTED]" : value
+      end
+    end
+
+    # Returns true if the host is a localhost address.
+    def self.localhost?(host)
+      %w[localhost 127.0.0.1 ::1].include?(host)
+    end
+
+    # Truncates a string to the maximum length.
+    def self.truncate(str, max: MAX_STRING_LENGTH)
+      return str if str.nil? || str.length <= max
+      "#{str[0, max - 3]}..."
+    end
+
+    # Validates that two URLs share the same origin.
+    # Relative URLs are resolved against base before comparison.
+    def self.same_origin?(base, target)
+      base_uri = URI.parse(base)
+      target_uri = URI.parse(target)
+      resolved = target_uri.relative? ? URI.join(base, target) : target_uri
+      base_uri.scheme == resolved.scheme && base_uri.host == resolved.host && base_uri.port == resolved.port
+    rescue URI::InvalidURIError
+      false
+    end
+  end
+end

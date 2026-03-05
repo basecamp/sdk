@@ -1,0 +1,30 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+let package = Package(
+    name: "{{.SwiftPackage}}",
+    platforms: [
+        .iOS(.v16),
+        .macOS(.v12),
+    ],
+    products: [
+        .library(name: "{{.SwiftPackage}}", targets: ["{{.SwiftPackage}}"]),
+    ],
+    targets: [
+        .target(
+            name: "{{.SwiftPackage}}",
+            path: "Sources/SDK",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .testTarget(
+            name: "{{.SwiftPackage}}Tests",
+            dependencies: ["{{.SwiftPackage}}"],
+            path: "Tests/SDKTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+    ]
+)
