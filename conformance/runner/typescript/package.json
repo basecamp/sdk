@@ -1,0 +1,16 @@
+{
+  "name": "conformance-runner-typescript",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "pretest": "cd ../../../typescript && npm install --prefer-offline --silent && npm run build",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.0",
+    "msw": "^2.12.0"
+  },
+  "dependencies": {
+    "@37signals/basecamp": "file:../../../typescript"
+  }
+}
