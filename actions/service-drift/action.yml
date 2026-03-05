@@ -1,0 +1,60 @@
+name: Service Drift
+description: Detects drift between generated service layer and OpenAPI spec
+
+inputs:
+  language:
+    description: Language to check for drift (go, typescript, ruby, kotlin, swift)
+    required: true
+
+outputs:
+  drifted:
+    description: Whether drift was detected
+    value: ${{ steps.check.outputs.drifted }}
+  report:
+    description: Drift report details
+    value: ${{ steps.check.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check service drift
+      id: check
+      shell: bash
+      run: |
+        case "${{ inputs.language }}" in
+          go)
+            make go-generate-services
+            ;;
+          typescript)
+            make ts-generate-services
+            ;;
+          ruby)
+            make ruby-generate-services
+            ;;
+          kotlin)
+            make kotlin-generate-services
+            ;;
+          swift)
+            make swift-generate-services
+            ;;
+          *)
+            echo "::error::Unsupported language: ${{ inputs.language }}"
+            exit 1
+            ;;
+        esac
+
+        if git diff --quiet; then
+          drifted=false
+        else
+          drifted=true
+        fi
+
+        echo "drifted=$drifted" >> "$GITHUB_OUTPUT"
+
+        if [ "$drifted" = true ]; then
+          echo "report=Service layer for ${{ inputs.language }} has drifted from OpenAPI spec" >> "$GITHUB_OUTPUT"
+          echo "::warning::Service drift detected for ${{ inputs.language }}. Run 'make ${{ inputs.language }}-generate-services'"
+        else
+          echo "report=No drift detected for ${{ inputs.language }}" >> "$GITHUB_OUTPUT"
+          echo "No service drift for ${{ inputs.language }}"
+        fi

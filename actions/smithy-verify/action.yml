@@ -1,0 +1,49 @@
+name: Smithy Verify
+description: Validates Smithy spec, builds OpenAPI, checks freshness
+
+inputs:
+  smithy-cli-version:
+    description: Smithy CLI version to install
+    required: false
+    default: '1.49.0'
+
+outputs:
+  fresh:
+    description: Whether openapi.json matches Smithy output
+    value: ${{ steps.check.outputs.fresh }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: corretto
+        java-version: '17'
+
+    - name: Install Smithy CLI
+      shell: bash
+      run: |
+        curl -sL https://github.com/smithy-lang/smithy/releases/download/${{ inputs.smithy-cli-version }}/smithy-cli-linux-x86_64.tar.gz | tar xz
+        echo "$PWD/smithy-cli/bin" >> $GITHUB_PATH
+
+    - name: Validate Smithy spec
+      shell: bash
+      run: cd spec && smithy validate
+
+    - name: Build OpenAPI from Smithy
+      shell: bash
+      run: make smithy-build
+
+    - name: Check freshness
+      id: check
+      shell: bash
+      run: |
+        if git diff --quiet openapi.json; then
+          echo "fresh=true" >> "$GITHUB_OUTPUT"
+          echo "openapi.json is up to date"
+        else
+          echo "fresh=false" >> "$GITHUB_OUTPUT"
+          echo "::error::openapi.json is out of date. Run 'make smithy-build'"
+          exit 1
+        fi

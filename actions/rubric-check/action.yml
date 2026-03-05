@@ -1,0 +1,248 @@
+name: Rubric Check
+description: Checks static evidence criteria from the SDK rubric (53 of 91)
+
+inputs:
+  profile:
+    description: SDK profile (full-sdk or single-language)
+    required: false
+    default: full-sdk
+  rubric-path:
+    description: Path to RUBRIC.md
+    required: false
+    default: RUBRIC.md
+
+outputs:
+  score:
+    description: Number of passing static criteria
+    value: ${{ steps.check.outputs.score }}
+  total:
+    description: Total static criteria for profile
+    value: ${{ steps.check.outputs.total }}
+  critical_pass:
+    description: Number of passing critical static criteria
+    value: ${{ steps.check.outputs.critical_pass }}
+  critical_total:
+    description: Total critical static criteria
+    value: ${{ steps.check.outputs.critical_total }}
+  report:
+    description: JSON report of all static checks
+    value: ${{ steps.check.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check static rubric criteria
+      id: check
+      shell: bash
+      run: |
+        score=0
+        total=0
+        critical_pass=0
+        critical_total=4
+        report='{"criteria":{}}'
+
+        pass() { score=$((score + 1)); report=$(echo "$report" | jq --arg k "$1" '.criteria[$k] = {"pass": true}'); }
+        fail() { report=$(echo "$report" | jq --arg k "$1" --arg n "$2" '.criteria[$k] = {"pass": false, "note": $n}'); }
+
+        if [ "${{ inputs.profile }}" = "full-sdk" ]; then
+          total=53
+        else
+          total=42
+        fi
+
+        # 1A.1 Smithy spec exists and validates (critical)
+        if [ -d spec ] && [ -f spec/smithy-build.json ]; then pass "1A.1"; critical_pass=$((critical_pass + 1)); else fail "1A.1" "spec/ directory or smithy-build.json missing"; fi
+
+        # 1A.2 OpenAPI generated from Smithy (critical)
+        if [ -f openapi.json ] && grep -q "Smithy" spec/smithy-build.json 2>/dev/null; then pass "1A.2"; critical_pass=$((critical_pass + 1)); else fail "1A.2" "openapi.json missing or not Smithy-generated"; fi
+
+        # 2A.1 Structured error type (critical)
+        found_error=false
+        for pattern in "ErrorCode" "error_code" "errorCode"; do
+          if grep -rq "$pattern" --include="*.go" --include="*.ts" --include="*.rb" --include="*.kt" --include="*.swift" . 2>/dev/null; then found_error=true; break; fi
+        done
+        if [ "$found_error" = true ]; then pass "2A.1"; critical_pass=$((critical_pass + 1)); else fail "2A.1" "No structured error type found"; fi
+
+        # 4A.1 Smithy freshness check (critical)
+        if grep -q "smithy-check" Makefile 2>/dev/null; then pass "4A.1"; critical_pass=$((critical_pass + 1)); else fail "4A.1" "No smithy-check target in Makefile"; fi
+
+        # 2A.2 Error codes defined
+        if grep -rq "auth_required\|not_found\|rate_limit\|validation" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "2A.2"; else fail "2A.2" "Error code constants not found"; fi
+
+        # 2A.8 Exit codes
+        if grep -rq "ExitCode\|exit_code\|EXIT_CODE" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "2A.8"; else fail "2A.8" "Exit code mapping not found"; fi
+
+        # 2B.6 Max retry configurable
+        if grep -rq "MaxRetries\|max_retries\|maxRetries" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "2B.6"; else fail "2B.6" "Max retry configuration not found"; fi
+
+        # 2D.1 Circuit breaker
+        if grep -rq "CircuitBreaker\|circuit_breaker\|circuitBreaker" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "2D.1"; else fail "2D.1" "Circuit breaker not found"; fi
+
+        # 2D.2 Bulkhead
+        if grep -rq "Bulkhead\|bulkhead\|concurrency" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "2D.2"; else fail "2D.2" "Bulkhead not found"; fi
+
+        # 2D.3 Rate limiter
+        if grep -rq "RateLimiter\|rate_limiter\|rateLimiter\|TokenBucket\|token_bucket" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "2D.3"; else fail "2D.3" "Rate limiter not found"; fi
+
+        # 3A.1 APP_TOKEN env var
+        if grep -rq "APP_TOKEN\|BASECAMP_TOKEN" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3A.1"; else fail "3A.1" "APP_TOKEN env var not found"; fi
+
+        # 3A.2 AuthStrategy interface
+        if grep -rq "AuthStrategy\|auth_strategy\|authStrategy" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3A.2"; else fail "3A.2" "AuthStrategy interface not found"; fi
+
+        # 3A.3 BearerAuth
+        if grep -rq "BearerAuth\|bearer_auth\|bearerAuth" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3A.3"; else fail "3A.3" "BearerAuth not found"; fi
+
+        # 3A.7 Credential storage
+        if grep -rq "keyring\|Keyring\|credential" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3A.7"; else fail "3A.7" "Credential storage not found"; fi
+
+        # 3A.8 APP_NO_KEYRING
+        if grep -rq "APP_NO_KEYRING\|NO_KEYRING" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3A.8"; else fail "3A.8" "APP_NO_KEYRING env var not found"; fi
+
+        # 3B.1-3B.7 Hooks
+        for criterion in "3B.1:Hooks" "3B.2:NoopHooks\|noop_hooks" "3B.3:ChainHooks\|chain_hooks" "3B.4:slog\|ConsoleHooks\|console_hooks" "3B.5:GatingHooks\|gating_hooks"; do
+          id="${criterion%%:*}"; pattern="${criterion#*:}"
+          if grep -rq "$pattern" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "$id"; else fail "$id" "Pattern not found: $pattern"; fi
+        done
+
+        # 3B.6 OpenTelemetry hooks
+        if grep -rq "otel\|OpenTelemetry\|opentelemetry" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3B.6"; else fail "3B.6" "OpenTelemetry hooks not found"; fi
+
+        # 3B.7 Prometheus hooks
+        if grep -rq "prometheus\|Prometheus" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3B.7"; else fail "3B.7" "Prometheus hooks not found"; fi
+
+        # 3C.5 Webhook verification
+        if grep -rq "HMAC\|hmac\|webhook.*verif\|signature.*verif" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "3C.5"; else fail "3C.5" "Webhook verification not found"; fi
+
+        # 1A.3 Behavior model
+        if [ -f behavior-model.json ]; then pass "1A.3"; else fail "1A.3" "behavior-model.json missing"; fi
+
+        # 1A.4 Operations tagged
+        if [ -f openapi.json ] && jq -e '.paths | to_entries | all(.value | to_entries | all(.value.tags | length > 0))' openapi.json > /dev/null 2>&1; then pass "1A.4"; else fail "1A.4" "Not all operations tagged"; fi
+
+        # 1A.5 API provenance
+        if [ -f spec/api-provenance.json ]; then pass "1A.5"; else fail "1A.5" "api-provenance.json missing"; fi
+
+        # 1B.1 Generated types
+        if grep -rq "generated" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "1B.1"; else fail "1B.1" "Generated types not found"; fi
+
+        # 1B.3 Path param types
+        if grep -rq "int64\|number\|Integer" --include="*.go" --include="*.ts" --include="*.rb" . 2>/dev/null; then pass "1B.3"; else fail "1B.3" "int64 path param types not found"; fi
+
+        # 4A.2 Behavior model freshness
+        if grep -q "behavior-model-check" Makefile 2>/dev/null; then pass "4A.2"; else fail "4A.2" "No behavior-model-check in Makefile"; fi
+
+        # 4A.6 URL routes
+        if grep -q "url-routes" Makefile 2>/dev/null || [ -f go/pkg/basecamp/url-routes.json ]; then pass "4A.6"; else fail "4A.6" "URL routes not found"; fi
+
+        # 4A.7 Provenance sync
+        if grep -q "provenance" Makefile 2>/dev/null; then pass "4A.7"; else fail "4A.7" "Provenance sync not in Makefile"; fi
+
+        # 4B.1 Unit tests
+        found_tests=false
+        for d in go typescript ruby kotlin swift; do
+          if find "$d" -name "*_test.go" -o -name "*.test.ts" -o -name "*_test.rb" -o -name "*Test.kt" -o -name "*Tests.swift" 2>/dev/null | grep -q .; then found_tests=true; break; fi
+        done
+        if [ "$found_tests" = true ]; then pass "4B.1"; else fail "4B.1" "No unit tests found"; fi
+
+        # 4B.6 Type checking
+        if grep -q "typecheck\|go vet\|rubocop" Makefile 2>/dev/null; then pass "4B.6"; else fail "4B.6" "Type checking not in Makefile"; fi
+
+        # 4B.7 Linting
+        if grep -q "lint" Makefile 2>/dev/null; then pass "4B.7"; else fail "4B.7" "Linting not in Makefile"; fi
+
+        # 4C.3 GitHub Release
+        if [ -f .github/workflows/release-github.yml ]; then pass "4C.3"; else fail "4C.3" "release-github.yml missing"; fi
+
+        # 4C.6 Breaking change detection
+        if [ -f .github/prompts/detect-breaking.prompt.yml ]; then pass "4C.6"; else fail "4C.6" "detect-breaking prompt missing"; fi
+
+        # 4D.1 README
+        if [ -f README.md ]; then pass "4D.1"; else fail "4D.1" "README.md missing"; fi
+
+        # 4D.2 CONTRIBUTING.md
+        if [ -f CONTRIBUTING.md ]; then pass "4D.2"; else fail "4D.2" "CONTRIBUTING.md missing"; fi
+
+        # 4D.3 AGENTS.md
+        if [ -f AGENTS.md ]; then pass "4D.3"; else fail "4D.3" "AGENTS.md missing"; fi
+
+        # 4D.4 Makefile convention
+        if [ -f Makefile ] && grep -q "check:" Makefile; then pass "4D.4"; else fail "4D.4" "Makefile missing or no check target"; fi
+
+        # 4D.5 CI pipeline
+        if [ -f .github/workflows/test.yml ]; then pass "4D.5"; else fail "4D.5" "test.yml workflow missing"; fi
+
+        # 4D.6 Dependabot
+        if [ -f .github/dependabot.yml ]; then pass "4D.6"; else fail "4D.6" "dependabot.yml missing"; fi
+
+        # Multi-only criteria (only for full-sdk profile)
+        if [ "${{ inputs.profile }}" = "full-sdk" ]; then
+          # 1A.7 Service generator covers all ops
+          if grep -rq "generate-services" Makefile 2>/dev/null; then pass "1A.7"; else fail "1A.7" "Service generation not in Makefile"; fi
+
+          # 4A.3 Per-language generation
+          gen_count=0
+          for lang in go ts rb kt swift; do
+            if grep -q "${lang}-generate\|${lang}_generate" Makefile 2>/dev/null; then gen_count=$((gen_count + 1)); fi
+          done
+          if [ "$gen_count" -ge 2 ]; then pass "4A.3"; else fail "4A.3" "Per-language generation found for fewer than 2 languages"; fi
+
+          # 4A.4 Service drift detection
+          if grep -q "drift" Makefile 2>/dev/null; then pass "4A.4"; else fail "4A.4" "Drift detection not in Makefile"; fi
+
+          # 4A.5 API version sync
+          if grep -q "sync-api-version" Makefile 2>/dev/null; then pass "4A.5"; else fail "4A.5" "API version sync not in Makefile"; fi
+
+          # 4B.2 Conformance tests in JSON
+          if ls conformance/tests/*.json > /dev/null 2>&1; then pass "4B.2"; else fail "4B.2" "No conformance test JSON files"; fi
+
+          # 4B.3 Conformance runner per language
+          runner_count=0
+          for lang in go typescript ruby; do
+            if [ -d "conformance/runner/$lang" ]; then runner_count=$((runner_count + 1)); fi
+          done
+          if [ "$runner_count" -ge 2 ]; then pass "4B.3"; else fail "4B.3" "Conformance runners found for fewer than 2 languages"; fi
+
+          # 4B.4 Conformance in CI
+          if grep -q "conformance" .github/workflows/test.yml 2>/dev/null; then pass "4B.4"; else fail "4B.4" "Conformance not in CI"; fi
+
+          # 4C.1 Atomic bump
+          if grep -q "bump" Makefile 2>/dev/null; then pass "4C.1"; else fail "4C.1" "bump target not in Makefile"; fi
+
+          # 4C.2 Per-language release workflows
+          release_count=0
+          for lang in go typescript ruby kotlin swift; do
+            if [ -f ".github/workflows/release-${lang}.yml" ]; then release_count=$((release_count + 1)); fi
+          done
+          if [ "$release_count" -ge 2 ]; then pass "4C.2"; else fail "4C.2" "Per-language release workflows found for fewer than 2 languages"; fi
+
+          # 4C.5 Version constants match
+          if grep -q "sync-api-version-check\|VERSION" Makefile 2>/dev/null; then pass "4C.5"; else fail "4C.5" "Version constant sync not in Makefile"; fi
+
+          # 4C.7 Go sub-tag auto-derived, never force-moved
+          if [ -f .github/workflows/release-go.yml ]; then
+            go_release=".github/workflows/release-go.yml"
+            has_tag_derive=$(grep -c 'go/v' "$go_release" 2>/dev/null || true)
+            has_force=$(grep -c '\-\-force\|-f' "$go_release" 2>/dev/null || true)
+            if [ "$has_tag_derive" -gt 0 ] && [ "$has_force" -eq 0 ]; then
+              pass "4C.7"
+            else
+              fail "4C.7" "release-go.yml must derive go/v* tag without --force"
+            fi
+          else
+            fail "4C.7" "release-go.yml missing"
+          fi
+        fi
+
+        echo "score=$score" >> "$GITHUB_OUTPUT"
+        echo "total=$total" >> "$GITHUB_OUTPUT"
+        echo "critical_pass=$critical_pass" >> "$GITHUB_OUTPUT"
+        echo "critical_total=$critical_total" >> "$GITHUB_OUTPUT"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
+
+        echo "Static rubric score: $score/$total (critical: $critical_pass/$critical_total)"
+
+        if [ "$critical_pass" -lt "$critical_total" ]; then
+          echo "::error::Critical static criteria not met ($critical_pass/$critical_total)"
+          exit 1
+        fi
