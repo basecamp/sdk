@@ -1,0 +1,113 @@
+name: Release Ruby SDK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:  # Manual trigger is always dry-run (rehearsal mode)
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  smithy:
+    uses: ./.github/workflows/smithy-verify.yml
+
+  test:
+    name: Test Ruby SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ruby
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ruby
+
+      - name: Lint
+        run: bundle exec rubocop
+
+      - name: Run tests
+        run: bundle exec rake test
+
+  publish:
+    name: Publish to RubyGems
+    needs: [smithy, test]
+    runs-on: ubuntu-latest
+    environment: release-rubygems
+    defaults:
+      run:
+        working-directory: ruby
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        if: github.event_name == 'push'
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: ruby
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # Manual trigger (dry-run): read from version.rb
+            VERSION=$(ruby -e "require_relative 'lib/sdk/version'; puts {{.RubyModule}}::VERSION")
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Rehearsal for version: $VERSION"
+          else
+            # Tag trigger: extract from tag (v0.2.1 → 0.2.1)
+            VERSION="${GITHUB_REF#refs/tags/v}"
+            GEM_VERSION=$(ruby -e "require_relative 'lib/{{.RubyGem | snakecase}}/version'; puts {{.RubyModule}}::VERSION")
+            if [ "$GEM_VERSION" != "$VERSION" ]; then
+              echo "::error::Gem version ($GEM_VERSION) does not match tag version ($VERSION)"
+              exit 1
+            fi
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "Releasing version: $VERSION"
+          fi
+
+      - name: Configure RubyGems credentials
+        if: github.event_name == 'push'
+        uses: rubygems/configure-rubygems-credentials@v1.0.0
+
+      - name: Publish to RubyGems
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          gem build {{.RubyGem}}.gemspec
+          set +e
+          output=$(gem push {{.RubyGem}}-${{ steps.version.outputs.version }}.gem 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          if [ "$status" -eq 0 ]; then
+            echo "Publish succeeded."
+          elif echo "$output" | grep -qi "repushing of gem versions is not allowed\|already been pushed"; then
+            echo "Version already published — treating as success for idempotency."
+          else
+            exit "$status"
+          fi
+          gem exec rubygems-await {{.RubyGem}}-${{ steps.version.outputs.version }}.gem
+
+      - name: Dry-run build
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          gem build {{.RubyGem}}.gemspec
+          echo "::notice::Dry run mode - not actually publishing"
+          echo "Would publish: {{.RubyGem}}-${{ steps.version.outputs.version }}.gem"

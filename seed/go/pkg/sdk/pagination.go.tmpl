@@ -1,0 +1,59 @@
+package sdk
+
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+)
+
+// ListMeta holds pagination metadata from response headers.
+type ListMeta struct {
+	TotalCount int
+	NextURL    string
+}
+
+// ParseListMeta extracts pagination metadata from HTTP response headers.
+func ParseListMeta(resp *http.Response) ListMeta {
+	meta := ListMeta{}
+
+	if tc := resp.Header.Get("X-Total-Count"); tc != "" {
+		fmt.Sscanf(tc, "%d", &meta.TotalCount)
+	}
+
+	if link := resp.Header.Get("Link"); link != "" {
+		meta.NextURL = parseLinkNext(link)
+	}
+
+	return meta
+}
+
+var linkNextRe = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
+
+func parseLinkNext(header string) string {
+	matches := linkNextRe.FindStringSubmatch(header)
+	if len(matches) >= 2 {
+		return matches[1]
+	}
+	return ""
+}
+
+// IsSameOrigin validates that a URL shares the same origin as a base URL.
+// Relative URLs are resolved against base before comparison.
+// Used to prevent SSRF when following pagination links.
+func IsSameOrigin(base, target string) bool {
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	targetURL, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+
+	resolved := baseURL.ResolveReference(targetURL)
+
+	return strings.EqualFold(baseURL.Scheme, resolved.Scheme) &&
+		strings.EqualFold(baseURL.Host, resolved.Host)
+}

@@ -1,0 +1,234 @@
+# {{.AppTitle}} SDK Makefile
+
+.PHONY: all check clean help
+
+all: check
+
+#------------------------------------------------------------------------------
+# Smithy targets
+#------------------------------------------------------------------------------
+
+.PHONY: smithy-validate smithy-build smithy-check
+
+smithy-validate:
+	@echo "==> Validating Smithy spec..."
+	cd spec && smithy validate
+
+smithy-build:
+	@echo "==> Building OpenAPI from Smithy..."
+	cd spec && smithy build
+	cp spec/build/smithy/openapi/openapi/{{.AppTitle}}.openapi.json openapi.json
+
+smithy-check: smithy-validate
+	@echo "==> Checking OpenAPI freshness..."
+	@cd spec && smithy build
+	@diff -q openapi.json spec/build/smithy/openapi/openapi/{{.AppTitle}}.openapi.json > /dev/null 2>&1 || \
+		{ echo "ERROR: openapi.json is out of date. Run 'make smithy-build'"; exit 1; }
+
+#------------------------------------------------------------------------------
+# Go targets
+#------------------------------------------------------------------------------
+
+.PHONY: go-test go-check go-generate-services conformance-go
+
+go-test:
+	@echo "==> Running Go tests..."
+	cd go && go test -v ./...
+
+go-check: go-test
+	@echo "==> Go checks passed"
+
+go-generate-services:
+	@echo "==> Generating Go services..."
+	cd go && go generate ./...
+
+conformance-go:
+	@echo "==> Running Go conformance tests..."
+	cd conformance/runner/go && go build -o conformance-runner . && ./conformance-runner
+
+#------------------------------------------------------------------------------
+# TypeScript targets
+#------------------------------------------------------------------------------
+
+.PHONY: ts-test ts-check ts-generate-services conformance-typescript
+
+ts-test:
+	@echo "==> Running TypeScript tests..."
+	cd typescript && npm test
+
+ts-check:
+	@echo "==> Running TypeScript checks..."
+	cd typescript && npm run typecheck && npm run lint && npm test && npm run build
+
+ts-generate-services:
+	@echo "==> Generating TypeScript services..."
+	cd typescript && npm run generate
+
+conformance-typescript:
+	@echo "==> Running TypeScript conformance tests..."
+	cd conformance/runner/typescript && npm ci --silent && npm test
+
+#------------------------------------------------------------------------------
+# Ruby targets
+#------------------------------------------------------------------------------
+
+.PHONY: ruby-test ruby-check ruby-generate-services conformance-ruby
+
+ruby-test:
+	@echo "==> Running Ruby tests..."
+	cd ruby && bundle exec rake test
+
+ruby-check:
+	@echo "==> Running Ruby checks..."
+	cd ruby && bundle exec rubocop && bundle exec rake test
+
+ruby-generate-services:
+	@echo "==> Generating Ruby services..."
+	cd ruby && bundle exec rake generate
+
+conformance-ruby:
+	@echo "==> Running Ruby conformance tests..."
+	cd conformance/runner/ruby && bundle install --quiet && ruby runner.rb
+
+#------------------------------------------------------------------------------
+# Swift targets
+#------------------------------------------------------------------------------
+
+.PHONY: swift-test swift-check swift-generate-services conformance-swift
+
+swift-test:
+	@echo "==> Running Swift tests..."
+	cd swift && swift test
+
+swift-check:
+	@echo "==> Running Swift checks..."
+	cd swift && swift build && swift test
+
+swift-generate-services:
+	@echo "==> Generating Swift services..."
+	cd swift && swift run BasecampGenerator --openapi ../openapi.json --behavior ../behavior-model.json --output Sources/SDK/Generated
+
+conformance-swift:
+	@echo "==> Running Swift conformance tests..."
+	cd conformance/runner/swift && swift build -c release && .build/release/ConformanceRunner
+
+#------------------------------------------------------------------------------
+# Kotlin targets
+#------------------------------------------------------------------------------
+
+.PHONY: kotlin-test kotlin-check kotlin-generate-services conformance-kotlin
+
+kotlin-test:
+	@echo "==> Running Kotlin tests..."
+	cd kotlin && ./gradlew :basecamp-sdk:check
+
+kotlin-check:
+	@echo "==> Running Kotlin checks..."
+	cd kotlin && ./gradlew :basecamp-sdk:build && ./gradlew :basecamp-sdk:check
+
+kotlin-generate-services:
+	@echo "==> Generating Kotlin services..."
+	cd kotlin && ./gradlew :generator:run --args="--openapi ../openapi.json --behavior ../behavior-model.json --output sdk/src/commonMain/kotlin/com/basecamp/sdk/generated"
+
+conformance-kotlin:
+	@echo "==> Running Kotlin conformance tests..."
+	cd conformance/runner/kotlin && ./gradlew run
+
+#------------------------------------------------------------------------------
+# Conformance (combined)
+#------------------------------------------------------------------------------
+
+.PHONY: conformance audit-check
+
+conformance: conformance-go conformance-typescript conformance-ruby conformance-swift conformance-kotlin
+	@echo "==> All conformance tests passed"
+
+audit-check:
+	@echo "==> Checking rubric audit..."
+	@test -f rubric-audit.json || \
+		{ echo "ERROR: rubric-audit.json not found."; exit 1; }
+
+#------------------------------------------------------------------------------
+# Version management
+#------------------------------------------------------------------------------
+
+bump:
+ifndef VERSION
+	$(error VERSION is required. Usage: make bump VERSION=x.y.z)
+endif
+	@echo "Bumping to v$(VERSION)..."
+	@scripts/sync-version.sh "$(VERSION)"
+
+release:
+ifndef VERSION
+	$(error VERSION is required. Usage: make release VERSION=x.y.z)
+endif
+	@echo "Releasing v$(VERSION)..."
+	@git diff --quiet && git diff --cached --quiet || \
+		{ echo "ERROR: Working tree has uncommitted changes."; exit 1; }
+	@[ "$$(git rev-parse --abbrev-ref HEAD)" = "main" ] || \
+		{ echo "ERROR: Must be on main branch to release."; exit 1; }
+	@$(MAKE) check
+	git tag "v$(VERSION)"
+	git push origin "v$(VERSION)"
+
+#------------------------------------------------------------------------------
+# Service generation (all languages)
+#------------------------------------------------------------------------------
+
+.PHONY: generate-services
+
+generate-services: go-generate-services ts-generate-services ruby-generate-services swift-generate-services kotlin-generate-services
+	@echo "==> All services regenerated"
+
+#------------------------------------------------------------------------------
+# Combined
+#------------------------------------------------------------------------------
+
+check: smithy-check conformance audit-check
+	@echo "==> All checks passed"
+
+clean:
+	rm -rf spec/build
+	rm -rf go/conformance-runner
+	rm -rf swift/.build
+	rm -rf typescript/dist
+	rm -rf kotlin/build kotlin/sdk/build
+
+help:
+	@echo "{{.AppTitle}} SDK Makefile"
+	@echo ""
+	@echo "Testing:"
+	@echo "  go-test              Run Go tests"
+	@echo "  ts-test              Run TypeScript tests"
+	@echo "  ruby-test            Run Ruby tests"
+	@echo "  swift-test           Run Swift tests"
+	@echo "  kotlin-test          Run Kotlin tests"
+	@echo ""
+	@echo "Checks:"
+	@echo "  go-check             Full Go check (test + lint)"
+	@echo "  ts-check             Full TypeScript check (typecheck + lint + test + build)"
+	@echo "  ruby-check           Full Ruby check (rubocop + test)"
+	@echo "  swift-check          Full Swift check (build + test)"
+	@echo "  kotlin-check         Full Kotlin check (build + test)"
+	@echo "  check                Run all checks"
+	@echo ""
+	@echo "Conformance:"
+	@echo "  conformance          Run all conformance tests"
+	@echo "  conformance-go       Run Go conformance only"
+	@echo "  conformance-typescript  Run TypeScript conformance only"
+	@echo "  conformance-ruby     Run Ruby conformance only"
+	@echo "  conformance-swift    Run Swift conformance only"
+	@echo "  conformance-kotlin   Run Kotlin conformance only"
+	@echo ""
+	@echo "Generation:"
+	@echo "  generate-services    Regenerate services for all languages"
+	@echo "  smithy-build         Build OpenAPI from Smithy"
+	@echo ""
+	@echo "Release:"
+	@echo "  bump VERSION=x.y.z   Update version across all languages"
+	@echo "  release VERSION=x.y.z  Tag and push a release"
+	@echo ""
+	@echo "Other:"
+	@echo "  clean                Remove build artifacts"
+	@echo "  help                 Show this help"

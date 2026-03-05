@@ -1,0 +1,63 @@
+$version: "2"
+
+namespace {{.AppName}}.traits
+
+use smithy.openapi#specificationExtension
+
+// ─── Retry ───────────────────────────────────────────────────────────────
+
+@trait(selector: "operation")
+@specificationExtension(as: "x-{{.AppName}}-retry")
+structure {{.AppName}}Retry {
+    @required
+    maxAttempts: Integer
+
+    baseDelayMs: Integer
+
+    backoff: String
+
+    retryOn: RetryStatusCodes
+}
+
+list RetryStatusCodes {
+    member: Integer
+}
+
+// ─── Pagination ──────────────────────────────────────────────────────────
+
+@trait(selector: "operation")
+@specificationExtension(as: "x-{{.AppName}}-pagination")
+structure {{.AppName}}Pagination {
+    @required
+    style: String
+
+    @required
+    pageParam: String
+
+    totalCountHeader: String
+
+    maxPageSize: Integer
+}
+
+// ─── Idempotency ─────────────────────────────────────────────────────────
+
+@trait(selector: "operation")
+@specificationExtension(as: "x-{{.AppName}}-idempotent")
+structure {{.AppName}}Idempotent {
+    keySupported: Boolean
+
+    keyHeader: String
+
+    natural: Boolean
+}
+
+// ─── Sensitive ───────────────────────────────────────────────────────────
+
+@trait(selector: "structure > member")
+@specificationExtension(as: "x-{{.AppName}}-sensitive")
+structure {{.AppName}}Sensitive {
+    @required
+    category: String
+
+    redact: Boolean
+}

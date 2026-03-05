@@ -1,0 +1,11 @@
+package {{.KotlinPackage}}
+
+/** Provides access tokens for authentication. */
+interface TokenProvider {
+    suspend fun accessToken(): String
+}
+
+/** A token provider that returns a fixed token. */
+class StaticTokenProvider(private val token: String) : TokenProvider {
+    override suspend fun accessToken(): String = token
+}

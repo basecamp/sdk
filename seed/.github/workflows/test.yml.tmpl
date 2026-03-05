@@ -1,0 +1,41 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smithy-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: basecamp/sdk/actions/smithy-verify@main
+
+  conformance:
+    needs: smithy-verify
+    strategy:
+      matrix:
+        include:
+          - language: go
+            runner: ubuntu-latest
+          - language: typescript
+            runner: ubuntu-latest
+          - language: ruby
+            runner: ubuntu-latest
+          - language: swift
+            runner: macos-15
+          - language: kotlin
+            runner: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: basecamp/sdk/actions/conformance-run@main
+        with:
+          language: ${{ matrix.language }}
+
+  rubric-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: basecamp/sdk/actions/rubric-check@main

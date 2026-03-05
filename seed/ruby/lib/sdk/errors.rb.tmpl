@@ -1,0 +1,67 @@
+module {{.RubyModule}}
+  # Structured error with code, message, hint, and HTTP metadata.
+  class Error < StandardError
+    CODES = {
+      usage: "usage",
+      not_found: "not_found",
+      auth: "auth_required",
+      forbidden: "forbidden",
+      rate_limit: "rate_limit",
+      network: "network",
+      api: "api_error",
+      validation: "validation",
+      ambiguous: "ambiguous"
+    }.freeze
+
+    EXIT_CODES = {
+      "usage" => 1,
+      "not_found" => 2,
+      "auth_required" => 3,
+      "forbidden" => 4,
+      "rate_limit" => 5,
+      "network" => 6,
+      "api_error" => 7,
+      "ambiguous" => 8,
+      "validation" => 9
+    }.freeze
+
+    MAX_MESSAGE_LENGTH = 500
+
+    attr_reader :code, :hint, :http_status, :retryable, :request_id
+
+    def initialize(code:, message:, hint: nil, http_status: nil, retryable: false, request_id: nil)
+      @code = code
+      @hint = hint
+      @http_status = http_status
+      @retryable = retryable
+      @request_id = request_id
+      super(hint ? "#{message}: #{hint}" : message)
+    end
+
+    def exit_code
+      EXIT_CODES.fetch(code, 7)
+    end
+
+    def self.from_response(response)
+      body = JSON.parse(response.body) rescue {}
+      msg = truncate(body["error"] || response.reason_phrase || "Unknown error")
+      hint = truncate(body["error_description"])
+      request_id = response.headers["X-Request-Id"]
+      status = response.status
+
+      case status
+      when 401 then new(code: CODES[:auth], message: msg, hint: hint, http_status: 401, request_id: request_id)
+      when 403 then new(code: CODES[:forbidden], message: msg, hint: hint, http_status: 403, request_id: request_id)
+      when 404 then new(code: CODES[:not_found], message: msg, hint: hint, http_status: 404, request_id: request_id)
+      when 429 then new(code: CODES[:rate_limit], message: msg, hint: hint, http_status: 429, retryable: true, request_id: request_id)
+      when 400, 422 then new(code: CODES[:validation], message: msg, hint: hint, http_status: status, request_id: request_id)
+      else new(code: CODES[:api], message: msg, hint: hint, http_status: status, retryable: status >= 500, request_id: request_id)
+      end
+    end
+
+    def self.truncate(str)
+      return nil if str.nil? || str.empty?
+      str.length <= MAX_MESSAGE_LENGTH ? str : "#{str[0, MAX_MESSAGE_LENGTH - 3]}..."
+    end
+  end
+end

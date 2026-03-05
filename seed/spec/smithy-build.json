@@ -1,0 +1,17 @@
+{
+    "version": "1.0",
+    "sources": ["model"],
+    "maven": {
+        "dependencies": [
+            "software.amazon.smithy:smithy-openapi:1.49.0",
+            "software.amazon.smithy:smithy-aws-traits:1.49.0"
+        ]
+    },
+    "plugins": {
+        "openapi": {
+            "service": "com.basecamp.api#BasecampService",
+            "protocol": "aws.protocols#restJson1",
+            "jsonContentType": "application/json"
+        }
+    }
+}

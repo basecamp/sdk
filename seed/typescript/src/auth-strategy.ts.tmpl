@@ -1,0 +1,13 @@
+/** Strategy for authenticating API requests. */
+export interface AuthStrategy {
+  authenticate(headers: Record<string, string>): Promise<void>
+}
+
+/** Bearer token authentication. */
+export class BearerAuth implements AuthStrategy {
+  constructor(private token: string) {}
+
+  async authenticate(headers: Record<string, string>): Promise<void> {
+    headers['Authorization'] = `Bearer ${this.token}`
+  }
+}

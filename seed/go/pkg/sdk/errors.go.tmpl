@@ -1,0 +1,152 @@
+package sdk
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+)
+
+// Resilience errors for circuit breaker, bulkhead, and rate limiting.
+var (
+	ErrCircuitOpen  = errors.New("circuit breaker is open")
+	ErrBulkheadFull = errors.New("bulkhead is full")
+	ErrRateLimited  = errors.New("rate limit exceeded")
+)
+
+// Error codes for API responses.
+const (
+	CodeUsage      = "usage"
+	CodeNotFound   = "not_found"
+	CodeAuth       = "auth_required"
+	CodeForbidden  = "forbidden"
+	CodeRateLimit  = "rate_limit"
+	CodeNetwork    = "network"
+	CodeAPI        = "api_error"
+	CodeValidation = "validation"
+	CodeAmbiguous  = "ambiguous"
+)
+
+// Exit codes for CLI tools.
+const (
+	ExitOK         = 0
+	ExitUsage      = 1
+	ExitNotFound   = 2
+	ExitAuth       = 3
+	ExitForbidden  = 4
+	ExitRateLimit  = 5
+	ExitNetwork    = 6
+	ExitAPI        = 7
+	ExitAmbiguous  = 8
+	ExitValidation = 9
+)
+
+// Error is a structured error with code, message, and optional hint.
+type Error struct {
+	Code       string
+	Message    string
+	Hint       string
+	HTTPStatus int
+	Retryable  bool
+	RequestID  string
+	Cause      error
+}
+
+// Error implements the error interface.
+func (e *Error) Error() string {
+	if e.Hint != "" {
+		return fmt.Sprintf("%s: %s", e.Message, e.Hint)
+	}
+	return e.Message
+}
+
+// Unwrap returns the underlying cause for errors.Is/As support.
+func (e *Error) Unwrap() error {
+	return e.Cause
+}
+
+// ExitCode returns the appropriate exit code for this error.
+func (e *Error) ExitCode() int {
+	return ExitCodeFor(e.Code)
+}
+
+// ExitCodeFor returns the exit code for a given error code.
+func ExitCodeFor(code string) int {
+	switch code {
+	case CodeUsage:
+		return ExitUsage
+	case CodeNotFound:
+		return ExitNotFound
+	case CodeAuth:
+		return ExitAuth
+	case CodeForbidden:
+		return ExitForbidden
+	case CodeRateLimit:
+		return ExitRateLimit
+	case CodeNetwork:
+		return ExitNetwork
+	case CodeAPI:
+		return ExitAPI
+	case CodeValidation:
+		return ExitValidation
+	case CodeAmbiguous:
+		return ExitAmbiguous
+	default:
+		return ExitAPI
+	}
+}
+
+// ErrUsage creates a usage error (invalid arguments, bad configuration).
+func ErrUsage(msg string) *Error {
+	return &Error{Code: CodeUsage, Message: msg}
+}
+
+// ErrNotFound creates a not-found error.
+func ErrNotFound(msg string) *Error {
+	return &Error{Code: CodeNotFound, Message: msg, HTTPStatus: http.StatusNotFound}
+}
+
+const maxErrorMessageLength = 500
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// ErrorFromResponse creates an *Error from an HTTP response.
+func ErrorFromResponse(resp *http.Response) *Error {
+	defer resp.Body.Close()
+
+	var body struct {
+		Error       string `json:"error"`
+		Description string `json:"error_description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		body.Error = http.StatusText(resp.StatusCode)
+	}
+	if body.Error == "" {
+		body.Error = http.StatusText(resp.StatusCode)
+	}
+
+	msg := truncateString(body.Error, maxErrorMessageLength)
+	hint := truncateString(body.Description, maxErrorMessageLength)
+	requestID := resp.Header.Get("X-Request-Id")
+
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return &Error{Code: CodeAuth, Message: msg, Hint: hint, HTTPStatus: 401, RequestID: requestID}
+	case http.StatusForbidden:
+		return &Error{Code: CodeForbidden, Message: msg, Hint: hint, HTTPStatus: 403, RequestID: requestID}
+	case http.StatusNotFound:
+		return &Error{Code: CodeNotFound, Message: msg, Hint: hint, HTTPStatus: 404, RequestID: requestID}
+	case http.StatusTooManyRequests:
+		return &Error{Code: CodeRateLimit, Message: msg, Hint: hint, HTTPStatus: 429, Retryable: true, RequestID: requestID}
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		return &Error{Code: CodeValidation, Message: msg, Hint: hint, HTTPStatus: resp.StatusCode, RequestID: requestID}
+	default:
+		retryable := resp.StatusCode >= 500
+		return &Error{Code: CodeAPI, Message: msg, Hint: hint, HTTPStatus: resp.StatusCode, Retryable: retryable, RequestID: requestID}
+	}
+}

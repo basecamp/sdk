@@ -1,0 +1,42 @@
+# {{.AppTitle}} SDK
+
+Official SDK for the {{.AppTitle}} API. Multi-language support for Go, TypeScript, Ruby, Swift, and Kotlin.
+
+## Quick Start
+
+### Go
+
+```go
+import "{{.ModulePath}}"
+
+client := {{.AppName}}.NewClient({{.AppName}}.WithToken("your-token"))
+projects, err := client.Projects.List(ctx)
+```
+
+### TypeScript
+
+```typescript
+import { {{.AppTitle}}Client } from '{{.NpmScope}}/{{.AppName}}-sdk'
+
+const client = new {{.AppTitle}}Client({ token: 'your-token' })
+const projects = await client.projects.list()
+```
+
+### Ruby
+
+```ruby
+require '{{.RubyGem}}'
+
+client = {{.AppTitle}}::Client.new(token: 'your-token')
+projects = client.projects.list
+```
+
+## Development
+
+```bash
+make check          # Run all checks
+make {lang}-test    # Run tests for one language
+make conformance    # Run cross-language conformance tests
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full development workflow.

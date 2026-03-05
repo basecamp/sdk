@@ -1,0 +1,12 @@
+/** Base class for all generated service classes. */
+export class BaseService {
+  constructor(
+    protected readonly request: (method: string, path: string, body?: unknown) => Promise<Response>,
+    protected readonly accountId: string,
+  ) {}
+
+  /** Builds a path with the account ID prefix. */
+  protected path(segments: string): string {
+    return `/${this.accountId}${segments}`
+  }
+}

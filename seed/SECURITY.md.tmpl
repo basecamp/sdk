@@ -1,0 +1,43 @@
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| latest  | :white_check_mark: |
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability in the {{.AppTitle}} SDK, please report it responsibly.
+
+**Do not open a public GitHub issue for security vulnerabilities.**
+
+Instead, please email security@basecamp.com with:
+
+1. A description of the vulnerability
+2. Steps to reproduce
+3. Potential impact
+4. Suggested fix (if any)
+
+We will acknowledge your report within 48 hours and aim to provide a fix within 7 days for critical issues.
+
+## Security Practices
+
+This SDK follows these security practices:
+
+- **HTTPS enforcement**: All API requests require HTTPS (except localhost for testing)
+- **Same-origin validation**: Pagination URLs are validated against the base URL to prevent SSRF
+- **Header redaction**: Sensitive headers (Authorization, Cookie) are redacted in logs
+- **Message truncation**: Error messages are truncated to prevent unbounded memory growth
+- **No credential storage**: The SDK never persists credentials to disk
+- **Dependency scanning**: Automated vulnerability scanning via Trivy, govulncheck, npm audit, bundler-audit
+
+## Dependencies
+
+We monitor dependencies for known vulnerabilities using:
+
+- Go: `govulncheck`, `gosec`, Trivy
+- TypeScript: `npm audit`, Trivy
+- Ruby: `bundler-audit`, Trivy
+- Swift: SPM dependency audit
+- Kotlin: Gradle dependency verification

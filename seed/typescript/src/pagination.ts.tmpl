@@ -1,0 +1,23 @@
+/** Metadata for paginated list responses. */
+export interface ListMeta {
+  totalCount?: number
+  nextUrl?: string
+}
+
+/** A list result that extends Array with pagination metadata. */
+export class ListResult<T> extends Array<T> {
+  readonly meta: ListMeta
+
+  constructor(items: T[], meta: ListMeta) {
+    super(0)
+    this.length = items.length
+    for (let i = 0; i < items.length; i++) {
+      this[i] = items[i]
+    }
+    this.meta = meta
+  }
+
+  static get [Symbol.species]() {
+    return Array
+  }
+}

@@ -1,0 +1,30 @@
+package sdk
+
+import (
+	"net/http"
+	"strings"
+)
+
+// sensitiveHeaders that should be redacted in logs.
+var sensitiveHeaders = map[string]bool{
+	"authorization": true,
+	"cookie":        true,
+	"set-cookie":    true,
+	"x-api-key":     true,
+}
+
+// RedactHeaders returns a copy of headers with sensitive values replaced.
+func RedactHeaders(h http.Header) http.Header {
+	redacted := h.Clone()
+	for key := range redacted {
+		if sensitiveHeaders[strings.ToLower(key)] {
+			redacted.Set(key, "[REDACTED]")
+		}
+	}
+	return redacted
+}
+
+// IsLocalhost returns true if the host is a localhost address.
+func IsLocalhost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}

@@ -1,0 +1,67 @@
+package {{.KotlinPackage}}.http
+
+import {{.KotlinPackage}}.*
+import io.ktor.client.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import kotlinx.coroutines.delay
+
+/** Internal HTTP client with authentication, retry, and error mapping. */
+internal class {{.AppTitle}}HttpClient(
+    private val config: {{.AppTitle}}Config,
+) : AutoCloseable {
+    private val client: HttpClient = HttpClient(config.engine ?: defaultEngine()) {
+        expectSuccess = false
+    }
+
+    suspend fun request(
+        method: HttpMethod,
+        url: String,
+        body: String? = null,
+    ): HttpResponse {
+        var lastException: {{.AppTitle}}Exception? = null
+
+        for (attempt in 0..config.maxRetries) {
+            val response = client.request(url) {
+                this.method = method
+                headers {
+                    append("Authorization", "Bearer ${config.accessToken}")
+                    append("User-Agent", config.userAgent)
+                    append("Accept", "application/json")
+                }
+                if (body != null) {
+                    contentType(ContentType.Application.Json)
+                    setBody(body)
+                }
+            }
+
+            if (response.status.isSuccess()) return response
+
+            val exception = {{.AppTitle}}Exception.fromHttpStatus(
+                response.status.value,
+                requestId = response.headers["X-Request-Id"],
+            )
+            lastException = exception
+
+            if (exception.retryable && attempt < config.maxRetries && method.isIdempotent()) {
+                val delayMs = (1L shl attempt) * 1000 + (0..100).random()
+                delay(delayMs)
+                continue
+            }
+
+            throw exception
+        }
+
+        throw lastException ?: {{.AppTitle}}Exception.Network("Request failed")
+    }
+
+    override fun close() {
+        client.close()
+    }
+}
+
+private fun HttpMethod.isIdempotent(): Boolean =
+    this in setOf(HttpMethod.Get, HttpMethod.Head, HttpMethod.Put, HttpMethod.Delete, HttpMethod.Options)
+
+internal expect fun defaultEngine(): io.ktor.client.engine.HttpClientEngine

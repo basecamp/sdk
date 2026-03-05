@@ -1,0 +1,17 @@
+/** Parses the next URL from a Link header. */
+export function parseNextLink(linkHeader: string | null): string | undefined {
+  if (!linkHeader) return undefined
+  const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/)
+  return match?.[1]
+}
+
+/** Checks if two URLs share the same origin (scheme + host). */
+export function isSameOrigin(base: string, target: string): boolean {
+  try {
+    const baseUrl = new URL(base)
+    const targetUrl = new URL(target, base)
+    return baseUrl.origin === targetUrl.origin
+  } catch {
+    return false
+  }
+}

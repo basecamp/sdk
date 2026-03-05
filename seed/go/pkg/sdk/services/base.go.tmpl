@@ -1,0 +1,27 @@
+package services
+
+import (
+	"context"
+	"io"
+
+	sdk "{{.ModulePath}}/go/pkg/sdk"
+)
+
+// BaseService provides shared infrastructure for all service implementations.
+type BaseService struct {
+	Client    *sdk.Client
+	AccountID string
+}
+
+// NewBaseService creates a new BaseService.
+func NewBaseService(client *sdk.Client, accountID string) BaseService {
+	return BaseService{Client: client, AccountID: accountID}
+}
+
+// Get performs an authenticated GET request.
+func (s *BaseService) Get(ctx context.Context, path string) (io.ReadCloser, error) {
+	// Delegate to Client.doRequest — services call through the parent client
+	_ = ctx
+	_ = path
+	return nil, nil // Placeholder: wire to client's doRequest
+}

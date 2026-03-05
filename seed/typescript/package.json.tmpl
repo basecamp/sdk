@@ -1,0 +1,30 @@
+{
+  "name": "{{.NpmPackage}}",
+  "version": "0.1.0",
+  "description": "{{.AppTitle}} SDK for TypeScript/JavaScript",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src/"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": ["{{.AppName}}", "sdk", "api"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}

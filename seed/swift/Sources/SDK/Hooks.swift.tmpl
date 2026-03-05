@@ -1,0 +1,36 @@
+import Foundation
+
+/// Observability hooks for SDK operations.
+public protocol {{.SwiftPackage}}Hooks: Sendable {
+    func onRequestStart(_ info: RequestInfo)
+    func onRequestEnd(_ info: RequestInfo, result: RequestResult)
+    func onRetry(_ info: RequestInfo, attempt: Int, error: any Error, delaySeconds: TimeInterval)
+}
+
+/// Request metadata for hooks.
+public struct RequestInfo: Sendable {
+    public let method: String
+    public let url: String
+    public let attempt: Int
+}
+
+/// Result metadata for hooks.
+public struct RequestResult: Sendable {
+    public let statusCode: Int
+    public let durationMs: Int
+    public let fromCache: Bool
+
+    public init(statusCode: Int, durationMs: Int, fromCache: Bool = false) {
+        self.statusCode = statusCode
+        self.durationMs = durationMs
+        self.fromCache = fromCache
+    }
+}
+
+/// No-op hooks implementation.
+public struct Noop{{.SwiftPackage}}Hooks: {{.SwiftPackage}}Hooks {
+    public init() {}
+    public func onRequestStart(_ info: RequestInfo) {}
+    public func onRequestEnd(_ info: RequestInfo, result: RequestResult) {}
+    public func onRetry(_ info: RequestInfo, attempt: Int, error: any Error, delaySeconds: TimeInterval) {}
+}

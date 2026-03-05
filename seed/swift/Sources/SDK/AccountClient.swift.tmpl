@@ -1,0 +1,14 @@
+import Foundation
+
+/// Client bound to a specific account.
+public final class AccountClient: Sendable {
+    package let client: {{.SwiftPackage}}Client
+    public let accountId: String
+
+    package init(client: {{.SwiftPackage}}Client, accountId: String) {
+        self.client = client
+        self.accountId = accountId
+    }
+
+    // Generated service accessors will be added here by the code generator.
+}
