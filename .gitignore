@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+._*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# Go
+vendor/
+
+# Swift
+.build/
+Package.resolved
+
+# Kotlin / Gradle
+.gradle/
+build/
+*.class
+local.properties
+
+# Ruby
+.bundle/
+Gemfile.lock
+
+# General
+*.log
+.env
+.env.*
+tmp/
