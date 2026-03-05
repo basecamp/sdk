@@ -43,5 +43,91 @@
       {"type": "noError"}
     ],
     "tags": ["pagination", "total-count"]
+  },
+  {
+    "name": "Auto-pagination follows Link headers across multiple pages",
+    "description": "Verifies that the SDK automatically follows Link rel=next headers to fetch all pages (2C.1, 2C.3)",
+    "operation": "ListProjects",
+    "method": "GET",
+    "path": "/projects.json",
+    "mockResponses": [
+      {
+        "status": 200,
+        "headers": {
+          "Link": "</projects.json?page=2>; rel=\"next\""
+        },
+        "body": [{"id": 1}, {"id": 2}]
+      },
+      {
+        "status": 200,
+        "headers": {
+          "Link": "</projects.json?page=3>; rel=\"next\""
+        },
+        "body": [{"id": 3}, {"id": 4}]
+      },
+      {
+        "status": 200,
+        "body": [{"id": 5}]
+      }
+    ],
+    "assertions": [
+      {"type": "requestCount", "expected": 3},
+      {"type": "noError"}
+    ],
+    "tags": ["pagination", "auto-follow"]
+  },
+  {
+    "name": "Pagination stops at maxPages safety cap",
+    "description": "Verifies that pagination stops after maxPages even when more pages are available (2C.3, 2C.6)",
+    "operation": "ListProjects",
+    "method": "GET",
+    "path": "/projects.json",
+    "configOverrides": {
+      "maxPages": 2
+    },
+    "mockResponses": [
+      {
+        "status": 200,
+        "headers": {
+          "Link": "</projects.json?page=2>; rel=\"next\""
+        },
+        "body": [{"id": 1}, {"id": 2}]
+      },
+      {
+        "status": 200,
+        "headers": {
+          "Link": "</projects.json?page=3>; rel=\"next\""
+        },
+        "body": [{"id": 3}, {"id": 4}]
+      },
+      {
+        "status": 200,
+        "body": [{"id": 5}]
+      }
+    ],
+    "assertions": [
+      {"type": "requestCount", "expected": 2},
+      {"type": "noError"},
+      {"type": "responseMeta", "path": "truncated", "expected": true}
+    ],
+    "tags": ["pagination", "safety-cap"]
+  },
+  {
+    "name": "Missing X-Total-Count returns zero",
+    "description": "Verifies that missing X-Total-Count header results in zero total count (2C.2)",
+    "operation": "ListProjects",
+    "method": "GET",
+    "path": "/projects.json",
+    "mockResponses": [
+      {
+        "status": 200,
+        "body": [{"id": 1}]
+      }
+    ],
+    "assertions": [
+      {"type": "responseMeta", "path": "totalCount", "expected": 0},
+      {"type": "noError"}
+    ],
+    "tags": ["pagination", "total-count"]
   }
 ]
