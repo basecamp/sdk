@@ -1,0 +1,41 @@
+MAKEFILE-CONVENTION.md
+  0f91336343d32ae3 9-12,14-21,23-24,30-58,65,98-109
+seed/scripts/enhance-openapi-go-types.sh.tmpl
+  ddd5bc2d56fc6e9e 1-118
+seed/Makefile.tmpl
+  0f91336343d32ae3 5,8,10,12,14-16,22,25,28-29,31,34-35,37-127,129-131,134,136-137,139-147,149-151,153,155,157-176,178-180,186-188,190-192,194-195,197-202,204,206-209,211-213,215-217,219,223-224,226,228-230,232-242,244,246-247,250,253,255-256,258-263,265-267,269,271-273,275-277,279,281,283-284,286-288,290-315,317-319,321-323,325,328-332,334-339,341,347-349,355,358-372,376,378-397,399,401-402,404-405,407,410-411,416-425,427-432,434-442,444-459,461-462,464-470,474-484,489-494,496-501
+  ddd5bc2d56fc6e9e 26-27,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "6aa878ea6823c956011afebf730596f2b1c083de",
+  "prompts": {
+    "0f91336343d32ae3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b696fdea-461b-4407-b67c-3c46999e63a6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 456,
+      "total_deletions": 149,
+      "accepted_lines": 443,
+      "overriden_lines": 0
+    },
+    "ddd5bc2d56fc6e9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e91a617-7418-4011-a3ec-5be39257aed6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 121,
+      "total_deletions": 0,
+      "accepted_lines": 121,
+      "overriden_lines": 0
+    }
+  }
+}
