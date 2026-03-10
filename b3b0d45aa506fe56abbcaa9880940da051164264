@@ -1,0 +1,25 @@
+seed/Makefile.tmpl
+  ddd5bc2d56fc6e9e 26-27,36
+seed/scripts/enhance-openapi-go-types.sh.tmpl
+  ddd5bc2d56fc6e9e 1-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.9",
+  "base_commit_sha": "b3b0d45aa506fe56abbcaa9880940da051164264",
+  "prompts": {
+    "ddd5bc2d56fc6e9e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e91a617-7418-4011-a3ec-5be39257aed6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Jeremy Daer <jeremy@37signals.com>",
+      "messages": [],
+      "total_additions": 121,
+      "total_deletions": 0,
+      "accepted_lines": 121,
+      "overriden_lines": 0
+    }
+  }
+}
