@@ -23,6 +23,8 @@ smithy-build: behavior-model smithy-mapper
 	@echo "==> Building OpenAPI from Smithy..."
 	cd spec && smithy build
 	@cp spec/build/smithy/openapi/openapi/{{.AppTitle}}.openapi.json openapi.json
+	@echo "==> Post-processing OpenAPI for Go types..."
+	./scripts/enhance-openapi-go-types.sh
 	@echo "==> OpenAPI spec generated: openapi.json"
 	@$(MAKE) sync-api-version
 
@@ -31,6 +33,7 @@ smithy-check: smithy-validate smithy-mapper
 	@cd spec && smithy build
 	@TMPFILE=$$(mktemp) && \
 		cp spec/build/smithy/openapi/openapi/{{.AppTitle}}.openapi.json "$$TMPFILE" && \
+		./scripts/enhance-openapi-go-types.sh "$$TMPFILE" "$$TMPFILE" > /dev/null 2>&1 && \
 		(diff -q openapi.json "$$TMPFILE" > /dev/null 2>&1 || \
 			(rm -f "$$TMPFILE" && echo "ERROR: openapi.json is out of date. Run 'make smithy-build'" && exit 1)) && \
 		rm -f "$$TMPFILE"
