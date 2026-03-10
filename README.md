@@ -5,18 +5,18 @@ Official API clients for Basecamp, HEY, and Fizzy. Generated from [Smithy](https
 | SDK | What it does | Repo | Status |
 |-----|-------------|------|--------|
 | Basecamp | Projects, to-dos, messages, schedules, campfires, card tables, and more | [basecamp/basecamp-sdk](https://github.com/basecamp/basecamp-sdk) | Available |
-| HEY | Email triage, contacts, screening, and search | basecamp/hey-sdk | Planned |
-| Fizzy | Boards, cards, columns, and workflows | basecamp/fizzy-sdk | Planned |
+| HEY | Email triage, contacts, screening, and search | [basecamp/hey-sdk](https://github.com/basecamp/hey-sdk) | Available |
+| Fizzy | Boards, cards, columns, and workflows | [basecamp/fizzy-sdk](https://github.com/basecamp/fizzy-sdk) | Available |
 
 ## Languages
 
 | Language | Package format | Basecamp | HEY | Fizzy |
 |----------|---------------|:--------:|:---:|:-----:|
-| Go | Go module | ✓ | | |
-| TypeScript | npm | ✓ | | |
-| Ruby | gem | ✓ | | |
-| Swift | SPM | ✓ | | |
-| Kotlin | GitHub Packages | ✓ | | |
+| Go | Go module | ✓ | ✓ | ✓ |
+| TypeScript | npm | ✓ | | ✓ |
+| Ruby | gem | ✓ | | ✓ |
+| Swift | SPM | ✓ | | ✓ |
+| Kotlin | GitHub Packages | ✓ | | ✓ |
 
 ## Related tools
 
