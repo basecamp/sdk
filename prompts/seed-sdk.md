@@ -98,15 +98,15 @@ Initialize each language in parallel -- they are independent of each other.
 1. Copy `seed/ruby/` into `ruby/`
 2. `cd ruby && bundle init`
 3. Scaffold client, error types, service base
-4. `make ruby-generate-services`
+4. `make rb-generate-services`
 
-**Checkpoint:** `make ruby-check` passes (rubocop + test).
+**Checkpoint:** `make rb-check` passes (rubocop + test).
 
 #### Swift
 1. Copy `seed/swift/` into `swift/`
 2. Initialize `Package.swift`
 3. Scaffold client, error types, service base
-4. `make swift-generate-services`
+4. `make swift-generate`
 
 **Checkpoint:** `swift build && swift test` pass.
 
@@ -114,7 +114,7 @@ Initialize each language in parallel -- they are independent of each other.
 1. Copy `seed/kotlin/` into `kotlin/`
 2. Initialize `build.gradle.kts`
 3. Scaffold client, error types, service base
-4. `make kotlin-generate-services`
+4. `make kt-generate-services`
 
 **Checkpoint:** `./gradlew build` passes.
 

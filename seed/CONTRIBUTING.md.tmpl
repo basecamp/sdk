@@ -19,13 +19,16 @@
 
 ## Adding a New API Operation
 
-1. Add the operation to the Smithy spec in `spec/model/`
+1. Add the operation to the Smithy spec in `spec/`
 2. Run `make smithy-build` to regenerate OpenAPI
-3. Run `make {lang}-generate-services` for each language
+3. Regenerate the service layer: `make generate-services` covers every language
+   this SDK ships. To do one at a time, use its prefix -- `make go-generate-services`,
+   `ts-`, `rb-`, `kt-`. Swift is `make swift-generate`.
 4. Add unit tests
 5. Add conformance tests if the operation has behavioral requirements
 6. Run `make check`
 
 ## Release Process
 
-Releases are managed via `make release VERSION=x.y.z`. See MAKEFILE-CONVENTION.md.
+Releases are managed via `make release VERSION=x.y.z`. See MAKEFILE-CONVENTION.md
+in basecamp/sdk for the target vocabulary and release architecture.

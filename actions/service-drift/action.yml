@@ -21,27 +21,22 @@ runs:
       id: check
       shell: bash
       run: |
+        # Language names are spelled out here; Makefile targets use the short
+        # prefixes from MAKEFILE-CONVENTION.md (go, ts, rb, swift, kt). Swift
+        # delegates to a sub-Makefile and so has no -services suffix.
         case "${{ inputs.language }}" in
-          go)
-            make go-generate-services
-            ;;
-          typescript)
-            make ts-generate-services
-            ;;
-          ruby)
-            make ruby-generate-services
-            ;;
-          kotlin)
-            make kotlin-generate-services
-            ;;
-          swift)
-            make swift-generate-services
-            ;;
+          go)         target=go-generate-services ;;
+          typescript) target=ts-generate-services ;;
+          ruby)       target=rb-generate-services ;;
+          kotlin)     target=kt-generate-services ;;
+          swift)      target=swift-generate ;;
           *)
             echo "::error::Unsupported language: ${{ inputs.language }}"
             exit 1
             ;;
         esac
+
+        make "$target"
 
         if git diff --quiet; then
           drifted=false
@@ -53,7 +48,7 @@ runs:
 
         if [ "$drifted" = true ]; then
           echo "report=Service layer for ${{ inputs.language }} has drifted from OpenAPI spec" >> "$GITHUB_OUTPUT"
-          echo "::warning::Service drift detected for ${{ inputs.language }}. Run 'make ${{ inputs.language }}-generate-services'"
+          echo "::warning::Service drift detected for ${{ inputs.language }}. Run 'make $target'"
         else
           echo "report=No drift detected for ${{ inputs.language }}" >> "$GITHUB_OUTPUT"
           echo "No service drift for ${{ inputs.language }}"
