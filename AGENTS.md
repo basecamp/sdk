@@ -14,8 +14,10 @@ deciding how careful to be.
 files. Nothing pulls later changes back into an SDK that already exists, so a fix here
 reaches only SDKs generated *afterwards*; `basecamp-sdk`, `fizzy-sdk` and `hey-sdk` keep
 whatever they were born with. Fixing a defect in `seed/**` is therefore never the whole
-job — the same defect is already sitting in every SDK generated before the fix and has
-to be repaired there separately.
+job — the same defect is likely sitting in SDKs generated before the fix. Check which
+ones actually inherited it before touching them: an SDK instantiated before the defect
+was introduced never had it, and one that selected a narrower language profile may not
+carry the affected file at all.
 
 **`actions/**` — referenced live, unversioned.** Generated CI calls these as
 `basecamp/sdk/actions/<name>@main`. There is no tag or SHA between an edit here and the
@@ -55,9 +57,10 @@ language *names* used in CI inputs and in prose are spelled out. That gap is the
 just `make swift-generate`.
 
 `seed/Makefile.tmpl` defines the vocabulary. `actions/service-drift/action.yml`,
-`prompts/seed-sdk.md`, `seed/AGENTS.md.tmpl`, `seed/CONTRIBUTING.md.tmpl`,
-`seed/README.md.tmpl` and `seed/.github/workflows/release-kotlin.yml.tmpl` all restate
-it. Rename a target and every one of them has to move in the same commit — they have
+`prompts/seed-sdk.md`, `prompts/close-gap.md`, `seed/AGENTS.md.tmpl`,
+`seed/CONTRIBUTING.md.tmpl`, `seed/README.md.tmpl` and
+`seed/.github/workflows/release-kotlin.yml.tmpl` all restate it. Treat that list as a
+starting point and grep for the target name rather than trusting it. Rename a target and every one of them has to move in the same commit — they have
 drifted apart before. The Kotlin workflow is easy to miss: it names
 `kt-generate-services` inside a drift-check error message, so a stale name there ships
 into every SDK generated afterwards and tells users to run a target that is gone.
