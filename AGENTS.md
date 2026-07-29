@@ -54,13 +54,12 @@ language *names* used in CI inputs and in prose are spelled out. That gap is the
 `ruby-check` and `kotlin-generate-services` read as obviously correct and do not exist.
 `MAKEFILE-CONVENTION.md` is the authority for the abbreviations.
 
-`make generate-services` is the aggregate over every language. Per-language targets are
-`<prefix>-generate-services`, except Swift: the Makefile defines `swift-generate`, with no
-`-services` counterpart, because Swift generation delegates to a sub-Makefile instead of
-running the generator inline. That diverges from `MAKEFILE-CONVENTION.md`, which lists
-`{lang}-generate-services` as required — a known gap, not something to quietly "fix" by
-adding an alias. The conventional name should arrive with a real Swift generator and a
-test that holds it up.
+`make generate-services` is the aggregate over every language, and every language has a
+`<prefix>-generate-services` target — Swift included, where it is an alias for
+`swift-generate`. Both names expand to the same recipe and both must stay: a
+synchronization pass that "tidies" either away breaks the convention or existing callers.
+Swift's quirk is that it delegates to a sub-Makefile rather than running the generator
+inline, which is why the work sits under the unsuffixed name.
 
 `seed/Makefile.tmpl` defines the vocabulary. `actions/service-drift/action.yml`,
 `prompts/seed-sdk.md`, `prompts/close-gap.md`, `seed/AGENTS.md.tmpl`,
