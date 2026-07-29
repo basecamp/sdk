@@ -1,0 +1,27 @@
+actions/service-drift/action.yml
+  s_bbb7a13d90e0a0::t_b5a20e08ce4dfb 25,31
+prompts/seed-sdk.md
+  s_bbb7a13d90e0a0::t_c60af2da9aae0d 109
+seed/AGENTS.md.tmpl
+  s_bbb7a13d90e0a0::t_ca9ee15b52073e 29
+seed/CONTRIBUTING.md.tmpl
+  s_bbb7a13d90e0a0::t_76113f878d5941 26
+seed/Makefile.tmpl
+  s_bbb7a13d90e0a0::t_21b80c9eb53ac8 244,258-262,463
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "077741f1661167ce7d1ed8d1b4517187b6d1c397",
+  "prompts": {},
+  "sessions": {
+    "s_bbb7a13d90e0a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e55d3e3b-8450-42f4-a23c-ba16d849757e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jeremy Daer <jeremydaer@gmail.com>"
+    }
+  }
+}
