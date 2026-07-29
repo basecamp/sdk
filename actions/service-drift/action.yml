@@ -22,13 +22,15 @@ runs:
       shell: bash
       run: |
         # Language names are spelled out here; Makefile targets use the short
-        # prefixes from MAKEFILE-CONVENTION.md (go, ts, rb, swift, kt).
+        # prefixes from MAKEFILE-CONVENTION.md (go, ts, rb, swift, kt). Swift is
+        # the odd one out: the seed Makefile defines swift-generate rather than
+        # swift-generate-services, so it is mapped to the target that exists.
         case "${{ inputs.language }}" in
           go)         target=go-generate-services ;;
           typescript) target=ts-generate-services ;;
           ruby)       target=rb-generate-services ;;
           kotlin)     target=kt-generate-services ;;
-          swift)      target=swift-generate-services ;;
+          swift)      target=swift-generate ;;
           *)
             echo "::error::Unsupported language: ${{ inputs.language }}"
             exit 1

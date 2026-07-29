@@ -106,7 +106,7 @@ Initialize each language in parallel -- they are independent of each other.
 1. Copy `seed/swift/` into `swift/`
 2. Initialize `Package.swift`
 3. Scaffold client, error types, service base
-4. `make swift-generate-services`
+4. `make swift-generate`
 
 **Checkpoint:** `swift build && swift test` pass.
 

@@ -23,7 +23,10 @@
 2. Run `make smithy-build` to regenerate OpenAPI
 3. Regenerate the service layer. Name the targets for the languages this SDK actually
    ships: `make go-generate-services`, `make ts-generate-services`,
-   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate-services`.
+   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate`.
+   Swift is the documented exception: the seed Makefile defines `swift-generate`, not
+   `swift-generate-services`, because Swift generation delegates to a sub-Makefile. Use
+   the name that exists.
    The aggregate `make generate-services` runs all five unconditionally, so it only
    works on a full five-language repo -- on a narrower profile it fails on the first
    language that was never initialized.
