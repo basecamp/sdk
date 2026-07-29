@@ -23,8 +23,10 @@ carry the affected file at all.
 `basecamp/sdk/actions/<name>@main`. There is no tag or SHA between an edit here and the
 workflows that consume it, so a breaking change lands in consumers' CI as soon as it
 merges to `main`. Reach is currently narrow: `release-orchestrate` is the only one a
-real SDK consumes (hey-sdk). `rubric-check`, `smithy-verify` and `conformance-run` are
-referenced by the seed's workflow templates, and `service-drift` is referenced by
+real SDK consumes (hey-sdk), and inside this repo it is wired up by
+`seed/.github/workflows/release-github.yml.tmpl`, so every SDK generated afterwards
+inherits that dependency. `rubric-check`, `smithy-verify` and `conformance-run` are
+referenced by the seed's workflow templates only, and `service-drift` is referenced by
 nothing at all — which is why a broken target name in it went unnoticed.
 
 **`common/` subtree — documented, unused.** README describes SDKs vendoring this repo
