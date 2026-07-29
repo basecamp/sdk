@@ -54,10 +54,13 @@ language *names* used in CI inputs and in prose are spelled out. That gap is the
 `<prefix>-generate-services`, except Swift, which delegates to a sub-Makefile and is
 just `make swift-generate`.
 
-`seed/Makefile.tmpl` defines the vocabulary; `actions/service-drift/action.yml`,
-`prompts/seed-sdk.md`, `seed/AGENTS.md.tmpl`, `seed/CONTRIBUTING.md.tmpl` and
-`seed/README.md.tmpl` all restate it. Rename a target and every one of them has to move
-in the same commit — they have drifted apart before.
+`seed/Makefile.tmpl` defines the vocabulary. `actions/service-drift/action.yml`,
+`prompts/seed-sdk.md`, `seed/AGENTS.md.tmpl`, `seed/CONTRIBUTING.md.tmpl`,
+`seed/README.md.tmpl` and `seed/.github/workflows/release-kotlin.yml.tmpl` all restate
+it. Rename a target and every one of them has to move in the same commit — they have
+drifted apart before. The Kotlin workflow is easy to miss: it names
+`kt-generate-services` inside a drift-check error message, so a stale name there ships
+into every SDK generated afterwards and tells users to run a target that is gone.
 
 ## The rubric is enforced on generated SDKs, not here
 
