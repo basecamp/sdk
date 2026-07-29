@@ -1,0 +1,21 @@
+seed/AGENTS.md.tmpl
+  s_bbb7a13d90e0a0::t_b5b7b9eafb37bd 36-40
+seed/CONTRIBUTING.md.tmpl
+  s_bbb7a13d90e0a0::t_9b3b59e016290f 34-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "30d91de53307ca8ceffc7c12aff1e80c64247345",
+  "prompts": {},
+  "sessions": {
+    "s_bbb7a13d90e0a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e55d3e3b-8450-42f4-a23c-ba16d849757e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jeremy Daer <jeremydaer@gmail.com>"
+    }
+  }
+}
