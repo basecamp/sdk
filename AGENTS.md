@@ -55,11 +55,12 @@ language *names* used in CI inputs and in prose are spelled out. That gap is the
 `MAKEFILE-CONVENTION.md` is the authority for the abbreviations.
 
 `make generate-services` is the aggregate over every language. Per-language targets are
-`<prefix>-generate-services` for all five, Swift included: `swift-generate-services` is a
-deliberate alias for `swift-generate`, which is where the work lives because Swift
-delegates to a sub-Makefile. Both names are supported and both must stay — a
-synchronization pass that "tidies" one of them away breaks either the convention or
-existing callers.
+`<prefix>-generate-services`, except Swift: the Makefile defines `swift-generate`, with no
+`-services` counterpart, because Swift generation delegates to a sub-Makefile instead of
+running the generator inline. That diverges from `MAKEFILE-CONVENTION.md`, which lists
+`{lang}-generate-services` as required — a known gap, not something to quietly "fix" by
+adding an alias. The conventional name should arrive with a real Swift generator and a
+test that holds it up.
 
 `seed/Makefile.tmpl` defines the vocabulary. `actions/service-drift/action.yml`,
 `prompts/seed-sdk.md`, `prompts/close-gap.md`, `seed/AGENTS.md.tmpl`,
