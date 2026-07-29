@@ -33,3 +33,8 @@ Smithy spec -> OpenAPI -> Behavior Model -> Per-language generators -> SDK code
 4. Add/update tests
 5. Run `make check`
 6. Commit
+
+`make check` has the same five-language assumption as the aggregate above: it depends on
+`go-check ts-check rb-check swift-check kt-check conformance` unconditionally. On a
+narrower profile, trim those dependencies when you instantiate the Makefile, or the gate
+fails in a language the repo never initialized.
