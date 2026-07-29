@@ -22,9 +22,19 @@ Smithy spec -> OpenAPI -> Behavior Model -> Per-language generators -> SDK code
 
 ## Development Workflow
 
-1. Edit the Smithy spec in `spec/`
+1. Edit the Smithy spec in `spec/model/`
 2. Run `make smithy-build` to regenerate OpenAPI
-3. Run per-language generators: `make {lang}-generate-services`
+3. Regenerate the service layer. Name the targets for the languages this SDK actually
+   ships: `make go-generate-services`, `make ts-generate-services`,
+   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate-services`.
+   The aggregate `make generate-services` runs all five unconditionally, so it only
+   works on a full five-language repo -- on a narrower profile it fails on the first
+   language that was never initialized.
 4. Add/update tests
 5. Run `make check`
 6. Commit
+
+`make check` has the same five-language assumption as the aggregate above: it depends on
+`go-check ts-check rb-check swift-check kt-check conformance` unconditionally. On a
+narrower profile, trim those dependencies when you instantiate the Makefile, or the gate
+fails in a language the repo never initialized.

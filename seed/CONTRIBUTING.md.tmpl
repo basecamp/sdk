@@ -21,11 +21,22 @@
 
 1. Add the operation to the Smithy spec in `spec/model/`
 2. Run `make smithy-build` to regenerate OpenAPI
-3. Run `make {lang}-generate-services` for each language
+3. Regenerate the service layer. Name the targets for the languages this SDK actually
+   ships: `make go-generate-services`, `make ts-generate-services`,
+   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate-services`.
+   The aggregate `make generate-services` runs all five unconditionally, so it only
+   works on a full five-language repo -- on a narrower profile it fails on the first
+   language that was never initialized.
 4. Add unit tests
 5. Add conformance tests if the operation has behavioral requirements
 6. Run `make check`
 
+`make check` has the same five-language assumption as the aggregate above: it depends on
+`go-check ts-check rb-check swift-check kt-check conformance` unconditionally. On a
+narrower profile, trim those dependencies when you instantiate the Makefile, or the gate
+fails in a language the repo never initialized.
+
 ## Release Process
 
-Releases are managed via `make release VERSION=x.y.z`. See MAKEFILE-CONVENTION.md.
+Releases are managed via `make release VERSION=x.y.z`. See MAKEFILE-CONVENTION.md
+in basecamp/sdk for the target vocabulary and release architecture.
