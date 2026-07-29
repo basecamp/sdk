@@ -1,0 +1,57 @@
+seed/CONTRIBUTING.md.tmpl
+  s_bbb7a13d90e0a0::t_de15d7a7a2689f 41-42
+  s_bbb7a13d90e0a0::t_e6c3a826c43c6e 22
+  s_bbb7a13d90e0a0::t_8a351904b49729 24-25,27-29
+  s_bbb7a13d90e0a0::t_9b3b59e016290f 34-38
+  s_bbb7a13d90e0a0::t_76113f878d5941 26
+  s_c82868dc168e58::t_8883ba9e39daf1 26
+seed/README.md.tmpl
+  s_bbb7a13d90e0a0::t_920e6a15078c2c 38
+prompts/seed-sdk.md
+  s_bbb7a13d90e0a0::t_a1ef7023cb60eb 101,103,117
+  s_bbb7a13d90e0a0::t_c60af2da9aae0d 109
+  s_c82868dc168e58::t_074a6e90021cef 109
+actions/service-drift/action.yml
+  s_bbb7a13d90e0a0::t_c207d69d6ea4d2 24,27-30,38
+  s_bbb7a13d90e0a0::t_e00cd298a68096 39
+  s_bbb7a13d90e0a0::t_30be8f365f66f3 50
+  s_bbb7a13d90e0a0::t_b5a20e08ce4dfb 25,31
+  s_c82868dc168e58::t_fd19140152671c 25,31
+seed/AGENTS.md.tmpl
+  s_bbb7a13d90e0a0::t_216aa46bd186ba 25
+  s_bbb7a13d90e0a0::t_7e28fb8376820c 27-28,30-32
+  s_bbb7a13d90e0a0::t_b5b7b9eafb37bd 36-40
+  s_bbb7a13d90e0a0::t_ca9ee15b52073e 29
+  s_c82868dc168e58::t_e3f9f5b7094b3c 29
+seed/Makefile.tmpl
+  s_bbb7a13d90e0a0::t_21b80c9eb53ac8 244,258-262,463
+  s_c82868dc168e58::t_98fb1d9413e54d 244,258-262,463
+AGENTS.md
+  s_bbb7a13d90e0a0::t_da88341278d2e5 1-66
+.claude/CLAUDE.md
+  s_bbb7a13d90e0a0::t_9eb44ac3622aff 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "fa725f8c6ac93e996801b81b5d2c74be1110dc6b",
+  "prompts": {},
+  "sessions": {
+    "s_bbb7a13d90e0a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e55d3e3b-8450-42f4-a23c-ba16d849757e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Jeremy Daer <jeremydaer@gmail.com>"
+    },
+    "s_c82868dc168e58": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "24027ec5-4f57-41b1-b294-49a4ad288a55",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Jeremy Daer <jeremydaer@gmail.com>"
+    }
+  }
+}
