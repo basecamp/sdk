@@ -21,10 +21,12 @@
 
 1. Add the operation to the Smithy spec in `spec/model/`
 2. Run `make smithy-build` to regenerate OpenAPI
-3. Regenerate the service layer. `make generate-services` covers every language this SDK
-   ships; to do one at a time use `make go-generate-services`,
-   `make ts-generate-services`, `make rb-generate-services`,
-   `make kt-generate-services`, or `make swift-generate`.
+3. Regenerate the service layer. Name the targets for the languages this SDK actually
+   ships: `make go-generate-services`, `make ts-generate-services`,
+   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate`.
+   The aggregate `make generate-services` runs all five unconditionally, so it only
+   works on a full five-language repo -- on a narrower profile it fails on the first
+   language that was never initialized.
 4. Add unit tests
 5. Add conformance tests if the operation has behavioral requirements
 6. Run `make check`
