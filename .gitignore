@@ -36,3 +36,6 @@ Gemfile.lock
 .env
 .env.*
 tmp/
+
+# hack/render-seed.sh output
+.rendered/

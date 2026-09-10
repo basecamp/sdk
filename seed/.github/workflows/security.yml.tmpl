@@ -222,7 +222,7 @@ jobs:
         run: |
           swift package show-dependencies --format json > deps.json
           echo "Swift package dependencies:"
-          cat deps.json | python3 -c "
+          python3 -c "
           import json, sys
           deps = json.load(sys.stdin)
           def walk(dep, depth=0):
@@ -232,5 +232,5 @@ jobs:
               for d in dep.get('dependencies', []):
                   walk(d, depth + 1)
           walk(deps)
-          "
+          " < deps.json
           rm -f deps.json

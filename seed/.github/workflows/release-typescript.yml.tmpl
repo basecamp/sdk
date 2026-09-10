@@ -84,7 +84,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             # Manual trigger (dry-run): read from package.json
             VERSION=$(node -p "require('./package.json').version")
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Rehearsal for version: $VERSION"
           else
             # Tag trigger: extract from tag (v0.2.1 → 0.2.1)
@@ -94,7 +94,7 @@ jobs:
               echo "::error::Package version ($PKG_VERSION) does not match tag version ($VERSION)"
               exit 1
             fi
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Releasing version: $VERSION"
           fi
 
@@ -103,9 +103,9 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           if [[ "$VERSION" == *-* ]]; then
-            echo "tag=next" >> $GITHUB_OUTPUT
+            echo "tag=next" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=latest" >> $GITHUB_OUTPUT
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check if already published
@@ -114,10 +114,10 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           if npm view "{{.NpmPackage}}@${VERSION}" version 2>/dev/null; then
-            echo "already_published=true" >> $GITHUB_OUTPUT
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
             echo "::notice::Version ${VERSION} already published to npm"
           else
-            echo "already_published=false" >> $GITHUB_OUTPUT
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish to npm
