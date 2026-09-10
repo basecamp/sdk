@@ -502,7 +502,13 @@ impl AccountClient {
                         && attempt < budget
                         && self.shared.auth.refreshable()
                     {
-                        let cause = Error::from_response(status, response.headers(), &[]);
+                        // The body is read now, not after the refresh: every request that
+                        // met the expiry waits on the one coalesced refresh, and a body
+                        // alive through that wait holds its connection for the duration.
+                        let cause = self.finish_failure(operation, response, deadline).await;
+                        if cause.is_deadline_exceeded() {
+                            return Err(cause);
+                        }
                         crate::hooks::guarded(|| {
                             hooks.on_request_end(
                                 &info,
@@ -535,7 +541,7 @@ impl AccountClient {
                             attempt += 1;
                             continue;
                         }
-                        return Err(self.finish_failure(operation, response, deadline).await);
+                        return Err(cause);
                     }
                     if eligible && attempt < attempts && retry.retry_on.contains(&status.as_u16()) {
                         let cause = Error::from_response(status, response.headers(), &[]);
@@ -1294,6 +1300,98 @@ mod tests {
         let sent = http.sent.lock().unwrap();
         assert_eq!(sent[0].headers()["authorization"], "Bearer token-0");
         assert_eq!(sent[1].headers()["authorization"], "Bearer token-1");
+    }
+
+    /// A provider whose refresh finds nothing newer to offer.
+    struct Declining;
+
+    #[async_trait]
+    impl TokenProvider for Declining {
+        async fn access_token(&self) -> Result<String, Error> {
+            Ok("token".to_string())
+        }
+
+        fn refreshable(&self) -> bool {
+            true
+        }
+
+        async fn refresh(&self) -> Result<bool, Error> {
+            Ok(false)
+        }
+    }
+
+    /// A provider that notes how many of the transport's bodies are alive as it refreshes.
+    struct BodiesAtRefresh {
+        live: Arc<AtomicUsize>,
+        seen: Mutex<Vec<usize>>,
+    }
+
+    #[async_trait]
+    impl TokenProvider for BodiesAtRefresh {
+        async fn access_token(&self) -> Result<String, Error> {
+            Ok("token".to_string())
+        }
+
+        fn refreshable(&self) -> bool {
+            true
+        }
+
+        async fn refresh(&self) -> Result<bool, Error> {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(self.live.load(Ordering::SeqCst));
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_401_is_released_before_the_refresh_is_awaited() {
+        let http = Arc::new(Scripted::new(vec![
+            (401, vec![], r#"{"error": "token expired"}"#),
+            (200, vec![], r#"{"id": 1}"#),
+        ]));
+        let provider = Arc::new(BodiesAtRefresh {
+            live: http.live_bodies.clone(),
+            seen: Mutex::new(Vec::new()),
+        });
+        let account = Client::builder(Config::default())
+            .token_provider(provider.clone())
+            .http_client(http.clone())
+            .build()
+            .unwrap()
+            .for_account("999");
+        account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap();
+        // Every request that met the expiry waits on one refresh; a body alive then
+        // would be one holding its connection for the whole of it.
+        assert_eq!(*provider.seen.lock().unwrap(), vec![0]);
+        assert_eq!(http.live_bodies.load(Ordering::SeqCst), 0);
+        assert_eq!(http.sent.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_declined_refresh_keeps_the_401_body_in_the_error() {
+        let http = Arc::new(Scripted::new(vec![(
+            401,
+            vec![],
+            r#"{"error": "token expired"}"#,
+        )]));
+        let account = Client::builder(Config::default())
+            .token_provider(Declining)
+            .http_client(http.clone())
+            .build()
+            .unwrap()
+            .for_account("999");
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert_eq!(error.http_status(), Some(401));
+        assert!(error.message().contains("token expired"), "{error:?}");
+        assert_eq!(http.sent.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
