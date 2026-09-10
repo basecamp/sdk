@@ -1,5 +1,7 @@
 //! SPEC §9: HTTPS enforcement, origin comparison and redaction.
 
+use std::fmt;
+
 use url::Url;
 
 use crate::error::Error;
@@ -71,6 +73,17 @@ pub fn redact_url(url: &Url) -> String {
             format!("{scheme}://{host}{port}{}", url.path())
         }
         _ => "unparsable".to_string(),
+    }
+}
+
+/// Stands in for a body's bytes in a `Debug` form. A request body can serialize a
+/// [`SensitiveString`](crate::types::SensitiveString) and a response body carries one until
+/// it is decoded, so a formatter is told how much there is, never what.
+pub(crate) struct BodySize(pub(crate) usize);
+
+impl fmt::Debug for BodySize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{} bytes]", self.0)
     }
 }
 

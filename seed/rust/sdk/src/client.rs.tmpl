@@ -21,7 +21,7 @@ use crate::operation::Operation;
 use crate::pagination::Page;
 use crate::retry::{backoff_with_jitter, effective_attempts};
 use crate::route::{Representation, Route};
-use crate::security::{is_same_origin, require_secure_endpoint};
+use crate::security::{BodySize, is_same_origin, require_secure_endpoint};
 use crate::version::default_user_agent;
 
 /// A {{.AppTitle}} client: one identity, one API origin. Derive an [`AccountClient`] with
@@ -50,7 +50,7 @@ pub(crate) struct Shared {
 }
 
 /// What came back from {{.AppTitle}}, before it is decoded. Its `Debug` form redacts the
-/// credential-bearing headers (SPEC §9).
+/// credential-bearing headers (SPEC §9) and gives the body's size in place of its bytes.
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct Response {
@@ -69,7 +69,7 @@ impl fmt::Debug for Response {
         f.debug_struct("Response")
             .field("status", &self.status)
             .field("headers", &crate::security::redact_headers(&self.headers))
-            .field("body", &self.body)
+            .field("body", &BodySize(self.body.len()))
             .field("url", &self.url)
             .finish()
     }
@@ -1328,6 +1328,30 @@ mod tests {
             .url_for(&account.operation(&GET_WIDGET, &[&".."]))
             .unwrap();
         assert_eq!(url.path(), "/999/widgets/...json");
+    }
+
+    #[test]
+    fn a_response_debugs_without_its_credentials_or_its_bytes() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", HeaderValue::from_static("Bearer secret"));
+        headers.insert("x-request-id", HeaderValue::from_static("req-1"));
+        let body = Bytes::from_static(br#"{"email_address":"someone@example.com"}"#);
+        let response = Response {
+            status: StatusCode::OK,
+            headers,
+            body: body.clone(),
+            url: Url::parse("https://api.example.com/999/people/1.json").unwrap(),
+        };
+        let debug = format!("{response:?}");
+        assert!(!debug.contains("secret"), "{debug}");
+        assert!(!debug.contains("someone@"), "{debug}");
+        assert!(debug.contains("/999/people/1.json"), "{debug}");
+        assert!(debug.contains("[REDACTED]"), "{debug}");
+        assert!(debug.contains("req-1"), "{debug}");
+        assert!(
+            debug.contains(&format!("[{} bytes]", body.len())),
+            "{debug}"
+        );
     }
 
     #[test]

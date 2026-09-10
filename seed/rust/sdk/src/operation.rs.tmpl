@@ -1,6 +1,6 @@
 //! A request the client has not sent yet.
 
-use std::fmt::Display;
+use std::fmt::{self, Display};
 
 use bytes::{Bytes, BytesMut};
 use serde::Serialize;
@@ -10,6 +10,7 @@ use crate::error::Error;
 use crate::hooks::OperationInfo;
 use crate::http::Method;
 use crate::route::Route;
+use crate::security::BodySize;
 
 /// A request the client has not sent yet. Generated service methods build one from a
 /// [`Route`]; reach for it directly only to add a query parameter they do not expose.
@@ -25,10 +26,19 @@ pub struct Operation {
     pub(crate) body: Option<Body>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct Body {
     pub(crate) content_type: String,
     pub(crate) bytes: Bytes,
+}
+
+impl fmt::Debug for Body {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Body")
+            .field("content_type", &self.content_type)
+            .field("bytes", &BodySize(self.bytes.len()))
+            .finish()
+    }
 }
 
 impl Operation {
@@ -359,6 +369,26 @@ mod tests {
             body.contains("Content-Type: image/pngprefix\r\n\r\npixels"),
             "{body}"
         );
+    }
+
+    #[test]
+    fn a_body_debugs_as_its_size_and_never_its_bytes() {
+        let mut operation = Operation::for_route(&UPLOAD_LOGO, &[]);
+        operation.multipart("logo", "logo.png", "image/png", b"the whole file");
+        let size = operation.body_bytes().unwrap().len();
+        let debug = format!("{operation:?}");
+        assert!(!debug.contains("the whole file"), "{debug}");
+        assert!(debug.contains(&format!("[{size} bytes]")), "{debug}");
+
+        let mut operation = Operation::for_route(&GET_BUCKET, &[&1]);
+        operation
+            .json(&json!({ "email_address": "someone@example.com" }))
+            .unwrap();
+        let size = operation.body_bytes().unwrap().len();
+        let debug = format!("{operation:?}");
+        assert!(!debug.contains("example.com"), "{debug}");
+        assert!(debug.contains("application/json"), "{debug}");
+        assert!(debug.contains(&format!("[{size} bytes]")), "{debug}");
     }
 
     #[test]
