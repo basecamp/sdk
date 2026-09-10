@@ -129,7 +129,7 @@ runs:
         if grep -rq "generated" --include="*.go" --include="*.ts" --include="*.rb" --include="*.rs" . 2>/dev/null; then pass "1B.1"; else fail "1B.1" "Generated types not found"; fi
 
         # 1B.3 Path param types
-        if grep -rq "int64\|number\|Integer" --include="*.go" --include="*.ts" --include="*.rb" --include="*.rs" . 2>/dev/null; then pass "1B.3"; else fail "1B.3" "int64 path param types not found"; fi
+        if grep -rq "int64\|number\|Integer\|i64" --include="*.go" --include="*.ts" --include="*.rb" --include="*.rs" . 2>/dev/null; then pass "1B.3"; else fail "1B.3" "int64 path param types not found"; fi
 
         # 4A.2 Behavior model freshness
         if grep -q "behavior-model-check" Makefile 2>/dev/null; then pass "4A.2"; else fail "4A.2" "No behavior-model-check in Makefile"; fi
@@ -145,11 +145,11 @@ runs:
         for d in go typescript ruby kotlin swift rust; do
           if find "$d" -name "*_test.go" -o -name "*.test.ts" -o -name "*_test.rb" -o -name "*Test.kt" -o -name "*Tests.swift" -o -path "*/tests/*.rs" 2>/dev/null | grep -q .; then found_tests=true; break; fi
         done
-        if [ "$found_tests" = false ] && grep -rq "#\[test\]" --include="*.rs" rust 2>/dev/null; then found_tests=true; fi
+        if [ "$found_tests" = false ] && grep -rqE "#\[(tokio::|async_std::)?test\]" --include="*.rs" rust 2>/dev/null; then found_tests=true; fi
         if [ "$found_tests" = true ]; then pass "4B.1"; else fail "4B.1" "No unit tests found"; fi
 
         # 4B.6 Type checking
-        if grep -q "typecheck\|go vet\|rubocop\|clippy" Makefile 2>/dev/null; then pass "4B.6"; else fail "4B.6" "Type checking not in Makefile"; fi
+        if grep -q "typecheck\|go vet\|rubocop\|clippy\|cargo check" Makefile 2>/dev/null; then pass "4B.6"; else fail "4B.6" "Type checking not in Makefile"; fi
 
         # 4B.7 Linting
         if grep -q "lint" Makefile 2>/dev/null; then pass "4B.7"; else fail "4B.7" "Linting not in Makefile"; fi
