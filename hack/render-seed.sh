@@ -42,6 +42,7 @@ while IFS= read -r -d '' src; do
   mkdir -p "$(dirname "$dest")"
   if [[ "$src" == *.tmpl ]]; then
     sed "${sed_args[@]}" "$src" > "${dest%.tmpl}"
+    [ ! -x "$src" ] || chmod +x "${dest%.tmpl}"
     rendered=$((rendered + 1))
   else
     cp "$src" "$dest"
@@ -51,8 +52,19 @@ done < <(find "$seed" -type f -print0)
 
 echo "Rendered $rendered templates and copied $copied files into $out"
 
-if leftovers=$(grep -rnE '\{\{-?[[:space:]]*\.' "$out"); then
-  echo "Placeholders left unrendered (undocumented in AGENTS.md, or in a non-.tmpl file):"
-  echo "$leftovers"
-  exit 1
-fi
+set +e
+leftovers=$(grep -rnE '\{\{-?[[:space:]]*\.' "$out")
+grep_status=$?
+set -e
+case "$grep_status" in
+  1) ;;
+  0)
+    echo "Placeholders left unrendered (undocumented in AGENTS.md, or in a non-.tmpl file):"
+    echo "$leftovers"
+    exit 1
+    ;;
+  *)
+    echo "grep failed with status $grep_status while checking $out"
+    exit "$grep_status"
+    ;;
+esac
