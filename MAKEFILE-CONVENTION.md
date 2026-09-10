@@ -31,7 +31,7 @@ Required Makefile targets and release architecture for SDK repositories.
 
 ## Naming Conventions
 
-- **Language prefixes**: `go-*`, `ts-*`, `rb-*`, `swift-*`, `kt-*`
+- **Language prefixes**: `go-*`, `ts-*`, `rb-*`, `swift-*`, `kt-*`, `rs-*`
 - **Sub-make delegation**: Use `$(MAKE) -C go` / `$(MAKE) -C swift` when a sub-Makefile exists. Keep `{lang}-generate-services` and `{lang}-check-drift` in the root Makefile (they need root-level context).
 - **Section dividers**: `#---` comment blocks between sections
 - **TypeScript stamp file**: Use `typescript/node_modules/.install-stamp` to skip redundant `npm ci`:
@@ -56,6 +56,7 @@ Required Makefile targets and release architecture for SDK repositories.
 | Ruby | test + rubocop |
 | Swift | build + test |
 | Kotlin | test (via `./gradlew :{app}-sdk:check`) |
+| Rust | fmt-check + clippy + test + doc + deny |
 
 ## Release Architecture
 
