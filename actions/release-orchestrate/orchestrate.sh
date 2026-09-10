@@ -80,11 +80,14 @@ while [ "$elapsed" -lt "$timeout" ]; do
     workflow="release-${lang}.yml"
     # --event push: only the run the tag push started can publish. Filter by
     # headBranch because --branch does not reliably resolve tag-triggered runs.
-    # A transient gh failure keeps the previous observation and is retried.
+    # --all keeps a since-disabled workflow's runs visible to a later re-run of
+    # this orchestrator. A transient gh failure keeps the previous observation
+    # and is retried.
     if ! result=$(gh run list \
       --workflow="$workflow" \
       --event=push \
-      --limit=20 \
+      --all \
+      --limit=100 \
       --json databaseId,status,conclusion,headBranch,url \
       -q "[.[] | select(.headBranch == \"$tag\")] | .[0]" 2> "$gh_stderr"); then
       echo "::warning::gh run list failed for $workflow; will retry: $(cat "$gh_stderr")"

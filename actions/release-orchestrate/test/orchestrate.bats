@@ -59,6 +59,7 @@ sleeps() { grep -c '^sleep 10$' "$GH_LOG" || true; }
   orchestrate
   [ "$status" -eq 0 ]
   logged '--event=push'
+  logged '--all'
   not_logged '--branch'
   [ "$(list_calls release-go.yml)" -eq 1 ]
 }
