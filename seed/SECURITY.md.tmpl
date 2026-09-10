@@ -30,7 +30,7 @@ This SDK follows these security practices:
 - **Header redaction**: Sensitive headers (Authorization, Cookie) are redacted in logs
 - **Message truncation**: Error messages are truncated to prevent unbounded memory growth
 - **No credential storage**: The SDK never persists credentials to disk
-- **Dependency scanning**: Automated vulnerability scanning via Trivy, govulncheck, npm audit, bundler-audit
+- **Dependency scanning**: Automated vulnerability scanning via Trivy, govulncheck, npm audit, bundler-audit, cargo deny
 
 ## Dependencies
 
@@ -41,3 +41,4 @@ We monitor dependencies for known vulnerabilities using:
 - Ruby: `bundler-audit`, Trivy
 - Swift: SPM dependency audit
 - Kotlin: Gradle dependency verification
+- Rust: `cargo deny` (RustSec advisories, licenses, bans, sources), Trivy

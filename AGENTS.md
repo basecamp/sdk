@@ -68,12 +68,25 @@ inline, which is why the work sits under the unsuffixed name.
 
 `seed/Makefile.tmpl` defines the vocabulary. `actions/service-drift/action.yml`,
 `prompts/seed-sdk.md`, `prompts/close-gap.md`, `seed/AGENTS.md.tmpl`,
-`seed/CONTRIBUTING.md.tmpl`, `seed/README.md.tmpl` and
-`seed/.github/workflows/release-kotlin.yml.tmpl` all restate it. Treat that list as a
+`seed/CONTRIBUTING.md.tmpl`, `seed/README.md.tmpl`,
+`seed/.github/workflows/release-kotlin.yml.tmpl` and
+`seed/scripts/check-rust-service-drift.sh.tmpl` all restate it. Treat that list as a
 starting point and grep for the target name rather than trusting it. Rename a target and every one of them has to move in the same commit — they have
 drifted apart before. The Kotlin workflow is easy to miss: it names
 `kt-generate-services` inside a drift-check error message, so a stale name there ships
 into every SDK generated afterwards and tells users to run a target that is gone.
+
+## `seed/rust/` is a crate, not a fragment
+
+The other language scaffolds are fragments that compile only once the instantiator has
+filled in the rest; `seed/rust/` renders to a complete Cargo workspace whose `sdk/` crate
+builds, tests, documents and packages as shipped, with an empty `src/generated/` tree in
+place of the generator's output. `.github/workflows/ci.yml` renders it and runs
+`cargo fmt --check`, `clippy -D warnings`, the tests, `cargo doc -D warnings` and
+`cargo publish --dry-run` on the result, so an edit to a `seed/rust/**` template is
+compiled before it merges. Keep it that way: a template that only compiles after
+generation would take the check with it. The generator itself (`rust/generator`) is
+ported per repo from basecamp-sdk and is deliberately not in the seed.
 
 ## The rubric is enforced on generated SDKs, not here
 

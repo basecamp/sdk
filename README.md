@@ -1,6 +1,6 @@
 # 37signals SDKs
 
-Official API clients for Basecamp, HEY, and Fizzy. Generated from [Smithy](https://smithy.io/) specifications with consistent authentication, retry, pagination, and error handling. Basecamp ships today in five languages; HEY and Fizzy SDKs are planned. These libraries power our [CLIs](https://github.com/basecamp/cli) and agent skills.
+Official API clients for Basecamp, HEY, and Fizzy. Generated from [Smithy](https://smithy.io/) specifications with consistent authentication, retry, pagination, and error handling. Basecamp ships today in six languages; HEY and Fizzy SDKs are planned. These libraries power our [CLIs](https://github.com/basecamp/cli) and agent skills.
 
 | SDK | What it does | Repo | Status |
 |-----|-------------|------|--------|
@@ -17,6 +17,7 @@ Official API clients for Basecamp, HEY, and Fizzy. Generated from [Smithy](https
 | Ruby | gem | ✓ | | ✓ |
 | Swift | SPM | ✓ | | ✓ |
 | Kotlin | GitHub Packages | ✓ | | ✓ |
+| Rust | crates.io | ✓ | | |
 
 ## Related tools
 
@@ -41,7 +42,8 @@ actions/
 conformance/
   schema.json           JSON schema for conformance test definitions
   tests/                Test case files (auth, retry, pagination, error-mapping, etc.)
-  runner/               Per-language runners (go, typescript, ruby, swift, kotlin)
+  runner/               Per-language runners (go, typescript, ruby, swift, kotlin);
+                        a Rust runner is ported per repo (see seed-sdk.md)
 
 prompts/
   seed-sdk.md           Bootstrap a new SDK repository from templates
@@ -49,8 +51,8 @@ prompts/
 
 seed/                   Template files for new SDK repos (.tmpl extension)
   spec/                 Smithy model templates
-  go/ ts/ ruby/         Per-language scaffolding
-  swift/ kotlin/
+  go/ ts/ ruby/         Per-language scaffolding (rust/ is a buildable crate;
+  swift/ kotlin/ rust/  the others are fragments)
   scripts/ .github/
   Makefile.tmpl, AGENTS.md.tmpl, README.md.tmpl, etc.
 

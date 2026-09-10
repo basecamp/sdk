@@ -70,3 +70,51 @@ jobs:
 
       - name: zizmor (rendered workflow templates)
         run: zizmor --no-progress --format github --config hack/zizmor-seed.yml --min-severity high .rendered/.github/workflows
+
+      - name: shellcheck (rendered scripts)
+        run: find .rendered/scripts -type f -name '*.sh' -print0 | xargs -0 -r shellcheck
+
+  rust-scaffold:
+    # seed/rust/ is the one scaffold that is a complete crate (AGENTS.md), so it is
+    # the one that can be compiled before it merges: the rendered workspace must
+    # pass the same gate `make rs-check` applies in a seeded repo, minus the
+    # generator-dependent drift check. The lockfile is generated here because the
+    # seed ships none (the crate name is a placeholder until rendering).
+    name: Rendered Rust scaffold
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Render seed/ with fixture values
+        run: hack/render-seed.sh .rendered
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: '1.98.1'
+          components: clippy, rustfmt
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: fmt, clippy, test, doc, deny, publish dry-run
+        working-directory: .rendered/rust
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: |
+          cargo generate-lockfile
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          cargo test --workspace --all-features --locked
+          cargo build -p fizzy-sdk --no-default-features --locked
+          cargo test -p fizzy-sdk --no-default-features --lib --locked
+          cargo build -p fizzy-sdk --examples --locked
+          cargo doc --no-deps --all-features -p fizzy-sdk --locked
+          cargo deny --locked check
+          cargo publish -p fizzy-sdk --dry-run --locked --allow-dirty

@@ -14,7 +14,7 @@ Evaluate the current SDK repository against the SDK Rubric and produce:
 ### 1. Determine Profile
 
 Check for multiple language directories to determine the profile:
-- If 2+ of `go/`, `typescript/`, `ruby/`, `kotlin/`, `swift/` exist: **full-sdk** (90 criteria)
+- If 2+ of `go/`, `typescript/`, `ruby/`, `kotlin/`, `swift/`, `rust/` exist: **full-sdk** (90 criteria)
 - Otherwise: **single-language** (76 criteria)
 
 ### 2. Score Static Criteria
