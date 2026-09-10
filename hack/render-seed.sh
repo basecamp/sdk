@@ -51,7 +51,7 @@ done < <(find "$seed" -type f -print0)
 
 echo "Rendered $rendered templates and copied $copied files into $out"
 
-if leftovers=$(grep -rn '{{\.' "$out"); then
+if leftovers=$(grep -rnE '\{\{-?[[:space:]]*\.' "$out"); then
   echo "Placeholders left unrendered (undocumented in AGENTS.md, or in a non-.tmpl file):"
   echo "$leftovers"
   exit 1
