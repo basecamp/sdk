@@ -21,6 +21,17 @@ tag="v${version}"
 timeout="${TIMEOUT:-1800}"
 interval="${POLL_INTERVAL:-30}"
 
+if [[ ! "$version" =~ ^[0-9A-Za-z._-]+$ ]]; then
+  echo "::error::Invalid version '${VERSION}' (expected a tag name such as 1.2.3 or v1.2.3)"
+  exit 1
+fi
+for n in "timeout=$timeout" "poll-interval=$interval"; do
+  if [[ ! "${n#*=}" =~ ^[1-9][0-9]*$ ]]; then
+    echo "::error::Invalid ${n%%=*} '${n#*=}' (expected a positive integer of seconds)"
+    exit 1
+  fi
+done
+
 langs=()
 IFS=',' read -ra raw_langs <<< "${LANGUAGES:-}"
 for raw in "${raw_langs[@]}"; do
@@ -43,17 +54,22 @@ states=()
 run_ids=()
 run_urls=()
 conclusions=()
+statuses=()
 for _ in "${langs[@]}"; do
   states+=("pending")
   run_ids+=("")
   run_urls+=("")
   conclusions+=("")
+  statuses+=("")
 done
+
+gh_stderr=$(mktemp)
+trap 'rm -f "$gh_stderr"' EXIT
 
 echo "Waiting for release workflows for $tag..."
 
 elapsed=0
-while true; do
+while [ "$elapsed" -lt "$timeout" ]; do
   all_done=true
 
   for i in "${!langs[@]}"; do
@@ -63,14 +79,16 @@ while true; do
     workflow="release-${lang}.yml"
     # --event push: only the run the tag push started can publish. Filter by
     # headBranch because --branch does not reliably resolve tag-triggered runs.
+    # A transient gh failure keeps the previous observation and is retried.
     if ! result=$(gh run list \
       --workflow="$workflow" \
       --event=push \
-      --limit=5 \
+      --limit=20 \
       --json databaseId,status,conclusion,headBranch,url \
-      -q "[.[] | select(.headBranch == \"$tag\")] | .[0]" 2>&1); then
-      echo "::warning::gh run list failed for $workflow; will retry: $result"
-      result='{}'
+      -q "[.[] | select(.headBranch == \"$tag\")] | .[0]" 2> "$gh_stderr"); then
+      echo "::warning::gh run list failed for $workflow; will retry: $(cat "$gh_stderr")"
+      all_done=false
+      continue
     fi
     [ -n "$result" ] || result='{}'
     run_status=$(jq -r '.status // "not_found"' <<< "$result")
@@ -78,6 +96,7 @@ while true; do
     run_ids[i]=$(jq -r '.databaseId // empty' <<< "$result")
     run_urls[i]=$(jq -r '.url // empty' <<< "$result")
     conclusions[i]="$run_conclusion"
+    statuses[i]="$run_status"
 
     if [ "$run_status" = "completed" ]; then
       if [ "$run_conclusion" = "success" ]; then
@@ -88,12 +107,13 @@ while true; do
         echo "::error::$lang release workflow failed ($run_conclusion): ${run_urls[$i]}"
       fi
     else
+      # Covers a failed run that was re-run while another language was still pending.
+      states[i]="pending"
       all_done=false
     fi
   done
 
   [ "$all_done" = true ] && break
-  [ "$elapsed" -lt "$timeout" ] || break
 
   sleep "$interval"
   elapsed=$((elapsed + interval))
@@ -112,7 +132,7 @@ for i in "${!langs[@]}"; do
       ;;
     *)
       if [ -n "${run_ids[$i]}" ]; then
-        unseen+=("${langs[$i]} (run ${run_ids[$i]} still ${conclusions[$i]/none/running})")
+        unseen+=("${langs[$i]} (run ${run_ids[$i]} still ${statuses[$i]})")
       else
         unseen+=("${langs[$i]} (no push-triggered run of release-${langs[$i]}.yml for $tag)")
       fi
