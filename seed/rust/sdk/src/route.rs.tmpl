@@ -169,11 +169,13 @@ const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
 
 impl Route {
     /// Whether SPEC §7's first two gates admit a retry: the method is naturally idempotent,
-    /// or the model flags the operation so.
+    /// or the model flags the operation so. The method set is the one every scaffold in the
+    /// seed retries on — `OPTIONS` included, safe by definition — so one operation is
+    /// retried the same way in every language; `POST` and `PATCH` stay fail-closed.
     pub fn retry_eligible(&self) -> bool {
         matches!(
             self.method,
-            Method::GET | Method::HEAD | Method::PUT | Method::DELETE
+            Method::GET | Method::HEAD | Method::PUT | Method::DELETE | Method::OPTIONS
         ) || self.metadata.idempotent
     }
 
@@ -224,5 +226,68 @@ impl Route {
             }
         }
         Some(params)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static PLAIN: OperationMetadata = OperationMetadata {
+        operation: "Op",
+        idempotent: false,
+        readonly: false,
+        retry: RetryConfig {
+            max_attempts: 3,
+            base_delay_ms: 1,
+            backoff: Backoff::Constant,
+            retry_on: &[429, 503],
+        },
+    };
+
+    static FLAGGED: OperationMetadata = OperationMetadata {
+        operation: "Op",
+        idempotent: true,
+        readonly: false,
+        retry: PLAIN.retry,
+    };
+
+    fn route(method: Method, metadata: &'static OperationMetadata) -> Route {
+        Route {
+            id: "Op",
+            service: "Ops",
+            method,
+            path: "/ops.json",
+            pattern: "/ops",
+            resource_type: "op",
+            params: &[],
+            body: BodyKind::None,
+            response: Representation::Json,
+            pagination: Pagination::None,
+            write: None,
+            deprecated: false,
+            metadata,
+        }
+    }
+
+    #[test]
+    fn the_naturally_idempotent_methods_are_retry_eligible() {
+        for method in [
+            Method::GET,
+            Method::HEAD,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ] {
+            assert!(route(method.clone(), &PLAIN).retry_eligible(), "{method}");
+        }
+        for method in [Method::POST, Method::PATCH] {
+            assert!(!route(method.clone(), &PLAIN).retry_eligible(), "{method}");
+        }
+    }
+
+    #[test]
+    fn the_model_admits_a_post_it_flags_idempotent() {
+        assert!(route(Method::POST, &FLAGGED).retry_eligible());
     }
 }
