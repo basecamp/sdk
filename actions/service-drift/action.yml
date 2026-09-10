@@ -3,7 +3,7 @@ description: Detects drift between generated service layer and OpenAPI spec
 
 inputs:
   language:
-    description: Language to check for drift (go, typescript, ruby, kotlin, swift)
+    description: Language to check for drift (go, typescript, ruby, kotlin, swift, rust)
     required: true
 
 outputs:
@@ -20,17 +20,20 @@ runs:
     - name: Check service drift
       id: check
       shell: bash
+      env:
+        LANGUAGE: ${{ inputs.language }}
       run: |
         # Language names are spelled out here; Makefile targets use the short
-        # prefixes from MAKEFILE-CONVENTION.md (go, ts, rb, swift, kt).
-        case "${{ inputs.language }}" in
+        # prefixes from MAKEFILE-CONVENTION.md (go, ts, rb, swift, kt, rs).
+        case "$LANGUAGE" in
           go)         target=go-generate-services ;;
           typescript) target=ts-generate-services ;;
           ruby)       target=rb-generate-services ;;
           kotlin)     target=kt-generate-services ;;
           swift)      target=swift-generate-services ;;
+          rust)       target=rs-generate-services ;;
           *)
-            echo "::error::Unsupported language: ${{ inputs.language }}"
+            echo "::error::Unsupported language: $LANGUAGE"
             exit 1
             ;;
         esac
@@ -46,9 +49,9 @@ runs:
         echo "drifted=$drifted" >> "$GITHUB_OUTPUT"
 
         if [ "$drifted" = true ]; then
-          echo "report=Service layer for ${{ inputs.language }} has drifted from OpenAPI spec" >> "$GITHUB_OUTPUT"
-          echo "::warning::Service drift detected for ${{ inputs.language }}. Run 'make $target'"
+          echo "report=Service layer for $LANGUAGE has drifted from OpenAPI spec" >> "$GITHUB_OUTPUT"
+          echo "::warning::Service drift detected for $LANGUAGE. Run 'make $target'"
         else
-          echo "report=No drift detected for ${{ inputs.language }}" >> "$GITHUB_OUTPUT"
-          echo "No service drift for ${{ inputs.language }}"
+          echo "report=No drift detected for $LANGUAGE" >> "$GITHUB_OUTPUT"
+          echo "No service drift for $LANGUAGE"
         fi
