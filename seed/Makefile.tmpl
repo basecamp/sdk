@@ -89,14 +89,16 @@ sync-api-version:
 
 sync-api-version-check:
 	@echo "==> Checking API version sync..."
+	@# A language the profile omits has no constant to check; a language it carries
+	@# must match. Each line skips an absent file and fails a present one that differs.
 	@API_VER=$$(jq -r '.info.version' openapi.json); \
 	ok=true; \
-	grep -q "APIVersion = \"$$API_VER\"" go/pkg/{{.AppLower}}/version.go || ok=false; \
-	grep -q "API_VERSION = \"$$API_VER\"" typescript/src/client.ts || ok=false; \
-	grep -q "API_VERSION = \"$$API_VER\"" ruby/lib/{{.AppLower}}/version.rb || ok=false; \
-	grep -q "API_VERSION = \"$$API_VER\"" kotlin/sdk/src/commonMain/kotlin/com/basecamp/{{.AppLower}}/{{.AppTitle}}Config.kt || ok=false; \
-	grep -q "apiVersion = \"$$API_VER\"" swift/Sources/{{.AppTitle}}/{{.AppTitle}}Config.swift || ok=false; \
-	grep -q "pub const API_VERSION: &str = \"$$API_VER\";" rust/sdk/src/generated/mod.rs || ok=false; \
+	f=go/pkg/{{.AppLower}}/version.go; [ ! -f $$f ] || grep -q "APIVersion = \"$$API_VER\"" $$f || ok=false; \
+	f=typescript/src/client.ts; [ ! -f $$f ] || grep -q "API_VERSION = ['\"]$$API_VER['\"]" $$f || ok=false; \
+	f=ruby/lib/{{.AppLower}}/version.rb; [ ! -f $$f ] || grep -q "API_VERSION = \"$$API_VER\"" $$f || ok=false; \
+	f=kotlin/sdk/src/commonMain/kotlin/com/basecamp/{{.AppLower}}/{{.AppTitle}}Config.kt; [ ! -f $$f ] || grep -q "API_VERSION = \"$$API_VER\"" $$f || ok=false; \
+	f=swift/Sources/{{.AppTitle}}/{{.AppTitle}}Config.swift; [ ! -f $$f ] || grep -q "apiVersion = \"$$API_VER\"" $$f || ok=false; \
+	f=rust/sdk/src/generated/mod.rs; [ ! -f $$f ] || grep -q "pub const API_VERSION: &str = \"$$API_VER\";" $$f || ok=false; \
 	if [ "$$ok" = false ]; then echo "ERROR: API_VERSION constants out of sync. Run 'make sync-api-version'"; exit 1; fi
 	@echo "  API version is in sync"
 

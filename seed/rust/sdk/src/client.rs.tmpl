@@ -741,10 +741,12 @@ const ACCOUNT_SEGMENT: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPH
     .remove(b'~');
 
 fn parse_base_url(base_url: &str) -> Result<Url, Error> {
+    // The input is never echoed: a mistyped URL may carry a credential the parser
+    // refused before the userinfo check below could, and the error reaches logs.
     let mut url = Url::parse(base_url.trim_end_matches('/'))
-        .map_err(|error| Error::usage(format!("base URL {base_url}: {error}")))?;
+        .map_err(|error| Error::usage(format!("base URL could not be parsed: {error}")))?;
     if url.cannot_be_a_base() || url.host_str().is_none() {
-        return Err(Error::usage(format!("base URL {base_url} has no host")));
+        return Err(Error::usage("base URL has no host"));
     }
     // Credentials travel in the Authorization header, never in the URL: a userinfo part
     // would be stored, printed by every Debug and sent to the transport on each request.
@@ -937,6 +939,17 @@ mod tests {
                 .unwrap_err()
                 .message(),
             "base URL must not carry a username or password"
+        );
+        let unparseable =
+            Config::default().with_base_url("https://user:secret@api.example.com:bad");
+        let error = Client::builder(unparseable)
+            .access_token("a")
+            .build()
+            .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::Usage);
+        assert!(
+            !format!("{error} {error:?}").contains("secret"),
+            "{error:?}"
         );
     }
 
