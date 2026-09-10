@@ -219,7 +219,7 @@ sleeps() { grep -c '^sleep 10$' "$GH_LOG" || true; }
   orchestrate
   [ "$status" -eq 1 ]
   [[ "$output" == *"go (could not query release-go.yml: every gh run list call failed)"* ]]
-  [[ "$output" != *"no push-triggered run"* ]]
+  [[ "$output" != *"(no push-triggered run of release-go.yml"* ]]
   [[ "$output" == *"unknown, not missing"* ]]
 }
 
