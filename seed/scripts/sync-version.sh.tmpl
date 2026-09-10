@@ -3,6 +3,12 @@
 # Reads VERSION from the repo root and updates all language-specific version
 # constants atomically. Run via: make bump VERSION=x.y.z
 #
+# Every edit below is anchored to the SDK version constant and nothing else on
+# the line, because each of these files also carries the API version next to it
+# (`APIVersion`, `API_VERSION`, `apiVersion`) and an unanchored `Version = ".*"`
+# rewrites both. `make release` and `make sync-api-version-check` grep the same
+# files afterwards; a constant this script misses fails there, not here.
+#
 set -euo pipefail
 
 VERSION="${1:?Usage: sync-version.sh <version>}"
@@ -10,10 +16,12 @@ VERSION="${1:?Usage: sync-version.sh <version>}"
 echo "Syncing version to $VERSION across all languages..."
 
 # Go
-if [ -f go/pkg/sdk/version.go ]; then
-  perl -pi -e "s/Version = \".*\"/Version = \"$VERSION\"/" go/pkg/sdk/version.go
-  echo "  Updated go/pkg/sdk/version.go"
-fi
+for GO_VERSION_FILE in go/pkg/*/version.go; do
+  if [ -f "$GO_VERSION_FILE" ]; then
+    perl -pi -e "s/^(const Version = \")[^\"]*\"/\${1}$VERSION\"/" "$GO_VERSION_FILE"
+    echo "  Updated $GO_VERSION_FILE"
+  fi
+done
 
 # TypeScript
 if [ -f typescript/package.json ]; then
@@ -24,7 +32,7 @@ fi
 # Ruby
 for RUBY_VERSION_FILE in ruby/lib/*/version.rb; do
   if [ -f "$RUBY_VERSION_FILE" ]; then
-    perl -pi -e "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" "$RUBY_VERSION_FILE"
+    perl -pi -e "s/^(\s*VERSION = \")[^\"]*\"/\${1}$VERSION\"/" "$RUBY_VERSION_FILE"
     echo "  Updated $RUBY_VERSION_FILE"
   fi
 done
@@ -32,14 +40,20 @@ done
 # Swift
 SWIFT_CONFIG=$(find swift/Sources -name "*Config.swift" -maxdepth 3 2>/dev/null | head -1)
 if [ -n "$SWIFT_CONFIG" ]; then
-  perl -pi -e "s/static let version = \".*\"/static let version = \"$VERSION\"/" "$SWIFT_CONFIG"
+  perl -pi -e "s/^(\s*(?:public )?static let version = \")[^\"]*\"/\${1}$VERSION\"/" "$SWIFT_CONFIG"
   echo "  Updated $SWIFT_CONFIG"
 fi
 
-# Kotlin
+# Kotlin — the Gradle project version and the VERSION constant the user agent is
+# built from; `make release` requires both.
 if [ -f kotlin/sdk/build.gradle.kts ]; then
-  perl -pi -e "s/version = \".*\"/version = \"$VERSION\"/" kotlin/sdk/build.gradle.kts
+  perl -pi -e "s/^(version = \")[^\"]*\"/\${1}$VERSION\"/" kotlin/sdk/build.gradle.kts
   echo "  Updated kotlin/sdk/build.gradle.kts"
+fi
+KOTLIN_CONFIG=$(find kotlin/sdk/src/commonMain/kotlin -name "*Config.kt" 2>/dev/null | head -1)
+if [ -n "$KOTLIN_CONFIG" ]; then
+  perl -pi -e "s/^(\s*const val VERSION = \")[^\"]*\"/\${1}$VERSION\"/" "$KOTLIN_CONFIG"
+  echo "  Updated $KOTLIN_CONFIG"
 fi
 
 # Rust — the ONE Rust version constant (code reads env!("CARGO_PKG_VERSION")).

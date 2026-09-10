@@ -458,6 +458,7 @@ impl AccountClient {
                     {
                         let delay =
                             backoff_with_jitter(retry, retry_index, self.shared.config.max_jitter);
+                        deadline.admits(delay)?;
                         crate::hooks::guarded(|| hooks.on_retry(&info, attempt + 1, &error, delay));
                         deadline.wait(delay).await?;
                         retry_index += 1;
@@ -543,6 +544,7 @@ impl AccountClient {
                                 self.shared.config.max_jitter,
                             ),
                         };
+                        deadline.admits(delay)?;
                         crate::hooks::guarded(|| hooks.on_retry(&info, attempt + 1, &cause, delay));
                         deadline.wait(delay).await?;
                         retry_index += 1;
@@ -579,6 +581,7 @@ impl AccountClient {
                                 retry_index,
                                 self.shared.config.max_jitter,
                             );
+                            deadline.admits(delay)?;
                             crate::hooks::guarded(|| {
                                 hooks.on_retry(&info, attempt + 1, &error, delay);
                             });
@@ -940,6 +943,43 @@ mod tests {
             .unwrap();
         assert_eq!(response.status, StatusCode::OK);
         assert_eq!(http.sent.lock().unwrap().len(), 3);
+    }
+
+    /// Counts the resends the hooks are told about.
+    struct CountingRetries {
+        retries: AtomicUsize,
+    }
+
+    impl Hooks for CountingRetries {
+        fn on_retry(&self, _: &RequestInfo, _: u32, _: &Error, _: Duration) {
+            self.retries.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_resend_the_deadline_does_not_admit_is_never_announced() {
+        let http = Arc::new(Scripted::new(vec![(429, vec![("retry-after", "5")], "")]));
+        let counting = Arc::new(CountingRetries {
+            retries: AtomicUsize::new(0),
+        });
+        let account = Client::builder(Config {
+            max_jitter: Duration::ZERO,
+            ..Default::default()
+        })
+        .access_token("secret")
+        .http_client(http.clone())
+        .hooks(counting.clone())
+        .operation_deadline(Duration::from_millis(100))
+        .build()
+        .unwrap()
+        .for_account("999");
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert!(error.is_deadline_exceeded(), "{error:?}");
+        assert_eq!(http.sent.lock().unwrap().len(), 1);
+        assert_eq!(counting.retries.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

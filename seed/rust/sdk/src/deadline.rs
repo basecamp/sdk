@@ -38,22 +38,28 @@ impl Deadline {
         }
     }
 
-    /// Waits `delay` before a resend, unless the deadline would pass first: a resend that
-    /// could not go out in time is not begun, and the deadline is exceeded now rather than
-    /// after the wait — and a wait that was admitted still ends at the deadline.
-    pub(crate) async fn wait(&self, delay: Duration) -> Result<(), Error> {
+    /// Whether a wait of `delay` fits before the deadline: a resend that could not go out
+    /// in time is not begun, and the deadline is exceeded now rather than after the wait.
+    /// Asked before the retry is announced to the hooks, so a resend they hear of is one
+    /// that is made.
+    pub(crate) fn admits(&self, delay: Duration) -> Result<(), Error> {
         match self.at {
             Some(at) if at.saturating_duration_since(Instant::now()) < delay => {
                 Err(self.exceeded())
             }
-            _ => {
-                self.bound(async {
-                    tokio::time::sleep(delay).await;
-                    Ok(())
-                })
-                .await
-            }
+            _ => Ok(()),
         }
+    }
+
+    /// Waits `delay` before a resend, unless the deadline would pass first (see
+    /// [`Deadline::admits`]) — and a wait that was admitted still ends at the deadline.
+    pub(crate) async fn wait(&self, delay: Duration) -> Result<(), Error> {
+        self.admits(delay)?;
+        self.bound(async {
+            tokio::time::sleep(delay).await;
+            Ok(())
+        })
+        .await
     }
 
     fn exceeded(&self) -> Error {
