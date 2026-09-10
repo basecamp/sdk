@@ -71,7 +71,7 @@ One path, no ambiguity:
 Registry artifacts (npm packages, gems, Go modules) are immutable once published. Tag deletion is not a recovery strategy.
 
 - **All workflows failed before any publish:** Safe to delete tag, fix, re-tag with same version.
-- **Some registries published, others failed:** Do NOT delete tag. Fix the failing workflow. Re-run it manually (`gh workflow run release-<lang>.yml`). The orchestrator detects completed workflows and only waits for remaining ones.
+- **Some registries published, others failed:** Do NOT delete tag. Fix the cause, then re-run the failed run in place: `gh run rerun <run-id> --failed` (the orchestrator's error lists the ids). Then re-run `release-github.yml` (`gh run rerun <its-run-id>`); it re-polls, treats the already-succeeded workflows as done, and creates the GitHub Release. The orchestrator only sees the runs the tag push triggered — a `gh workflow run release-<lang>.yml` dispatch starts a separate dry-run rehearsal that never publishes and is never detected. A re-run executes the workflow file as of the tag, so a fix that needs a workflow change means releasing the next patch instead.
 - **Fundamentally broken release (wrong code shipped):** Bump to next patch version (`x.y.(z+1)`). Release again. The partially published version is orphaned but harmless — no GitHub Release points to it, CHANGELOG notes the skip.
 
 `make release` is the sole entry point. CI workflows are triggered consequences, not peers.

@@ -29,6 +29,11 @@ inherits that dependency. `rubric-check`, `smithy-verify` and `conformance-run` 
 referenced by the seed's workflow templates only, and `service-drift` is referenced by
 nothing at all — which is why a broken target name in it went unnoticed.
 
+`release-orchestrate` keeps its logic in `orchestrate.sh` so it can be exercised
+without GitHub: `bats actions/release-orchestrate/test` runs it against a stubbed `gh`.
+The contract those tests pin is that only push-triggered runs count — a
+`workflow_dispatch` of a `release-<lang>.yml` is a rehearsal the poller must never see.
+
 **`common/` subtree — documented, unused.** README describes SDKs vendoring this repo
 via `git subtree` as `common/`. No SDK does today. Don't assume a change reaches anyone
 that way.

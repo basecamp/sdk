@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Stub gh for the orchestrator tests. Every invocation is appended to $GH_LOG.
+#
+#   gh run list --workflow=W --event=E --limit=N --json ... -q EXPR
+#     Answers from $GH_FIXTURES/W[.N].json: an array of runs, each with an "event"
+#     field. The stub applies the --event filter, then EXPR with jq, exactly the
+#     shape the real CLI would return. W.N.json (N = number of earlier list calls
+#     for W, from 0) takes precedence over W.json, so a fixture can change between
+#     polls. GH_LIST_FAIL_ONCE=1 makes the first list call fail.
+#   gh release create TAG ...   logs; fails when GH_RELEASE_FAIL=1
+#   gh release view TAG --json url -q .url   prints a fake URL
+set -euo pipefail
+echo "$*" >> "$GH_LOG"
+
+case "$1 $2" in
+  "run list")
+    workflow=""; event=""; query=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --workflow=*) workflow="${1#--workflow=}" ;;
+        --event=*) event="${1#--event=}" ;;
+        -q) query="$2"; shift ;;
+      esac
+      shift
+    done
+    if [ "${GH_LIST_FAIL_ONCE:-}" = "1" ] && [ ! -f "$GH_STATE/failed-once" ]; then
+      touch "$GH_STATE/failed-once"
+      echo "HTTP 502: bad gateway" >&2
+      exit 1
+    fi
+    counter="$GH_STATE/calls-$workflow"
+    n=0
+    [ -f "$counter" ] && n=$(cat "$counter")
+    echo $((n + 1)) > "$counter"
+    fixture="$GH_FIXTURES/$workflow.$n.json"
+    [ -f "$fixture" ] || fixture="$GH_FIXTURES/$workflow.json"
+    [ -f "$fixture" ] || fixture=/dev/null
+    runs=$(cat "$fixture"); [ -n "$runs" ] || runs='[]'
+    jq -r --arg event "$event" "[.[] | select(\$event == \"\" or .event == \$event)] | $query" <<< "$runs"
+    ;;
+  "release create")
+    [ "${GH_RELEASE_FAIL:-}" != "1" ] || { echo "HTTP 422: tag already has a release" >&2; exit 1; }
+    ;;
+  "release view")
+    echo "https://github.example/releases/tag/$3"
+    ;;
+  *)
+    echo "unexpected gh call: $*" >&2
+    exit 99
+    ;;
+esac

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Polling waits are counted, not slept.
+echo "sleep $*" >> "$GH_LOG"
