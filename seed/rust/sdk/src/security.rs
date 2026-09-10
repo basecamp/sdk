@@ -8,7 +8,13 @@ use crate::error::Error;
 use crate::http::{HeaderMap, HeaderValue};
 
 /// The headers that are replaced with `[REDACTED]` before anything is logged or formatted.
-pub const SENSITIVE_HEADERS: &[&str] = &["authorization", "cookie", "set-cookie", "x-csrf-token"];
+pub const SENSITIVE_HEADERS: &[&str] = &[
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "x-api-key",
+    "x-csrf-token",
+];
 
 /// Refuses a URL that would carry credentials over plain HTTP, unless it is on this machine.
 pub fn require_secure_endpoint(url: &Url) -> Result<(), Error> {
@@ -143,9 +149,13 @@ mod tests {
     fn credentials_are_redacted() {
         let mut headers = HeaderMap::new();
         headers.insert("Authorization", HeaderValue::from_static("Bearer secret"));
+        headers.insert("X-Api-Key", HeaderValue::from_static("key-secret"));
+        headers.insert("X-CSRF-Token", HeaderValue::from_static("csrf-secret"));
         headers.insert("Accept", HeaderValue::from_static("application/json"));
         let redacted = redact_headers(&headers);
         assert_eq!(redacted["authorization"], "[REDACTED]");
+        assert_eq!(redacted["x-api-key"], "[REDACTED]");
+        assert_eq!(redacted["x-csrf-token"], "[REDACTED]");
         assert_eq!(redacted["accept"], "application/json");
     }
 
