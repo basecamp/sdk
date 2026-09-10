@@ -314,5 +314,5 @@ jobs:
 
       - name: cargo deny check (both workspaces)
         run: |
-          cargo deny --manifest-path rust/Cargo.toml --locked check
+          cargo deny --manifest-path rust/Cargo.toml --config rust/deny.toml --locked check
           cargo deny --manifest-path conformance/runner/rust/Cargo.toml --config rust/deny.toml --locked check

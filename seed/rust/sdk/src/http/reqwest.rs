@@ -80,6 +80,9 @@ fn chunks(response: reqwest::Response) -> impl stream::Stream<Item = Result<Byte
 }
 
 fn classify(error: reqwest::Error) -> Error {
+    // reqwest renders the request URL into its error text; a signed query must not reach
+    // the hint or the source chain.
+    let error = error.without_url();
     if error.is_timeout() {
         Error::network_timeout(error)
     } else {

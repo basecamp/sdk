@@ -352,7 +352,7 @@ rs-doc:
 rs-deny:
 	@command -v cargo-deny >/dev/null || (echo "Install cargo-deny: cargo install cargo-deny --locked (or brew install cargo-deny)" && exit 1)
 	@echo "==> cargo deny (rust + conformance/runner/rust)..."
-	cargo deny --manifest-path rust/Cargo.toml --locked check
+	cargo deny --manifest-path rust/Cargo.toml --config rust/deny.toml --locked check
 	@# The runner is initialized in the conformance phase, after the crate; until then
 	@# there is nothing to audit there and rs-check must still pass.
 	@if [ -f conformance/runner/rust/Cargo.toml ]; then \

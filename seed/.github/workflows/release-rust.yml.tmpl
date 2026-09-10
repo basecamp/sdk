@@ -63,6 +63,13 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-features --locked
 
+      # Without default features the crate ships no transport; that configuration is
+      # advertised, so it is built and its unit tests run before anything is published.
+      - name: Build and test without default features
+        run: |
+          cargo build -p "$CRATE" --no-default-features --locked
+          cargo test -p "$CRATE" --no-default-features --lib --locked
+
       - name: Docs
         env:
           RUSTDOCFLAGS: -D warnings
