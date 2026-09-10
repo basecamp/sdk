@@ -27,9 +27,11 @@ pub use self::reqwest::ReqwestClient;
 
 /// Sends one HTTP request and answers with the response, its body still unread.
 ///
-/// An implementation **must not follow redirects**: SPEC §13 has the SDK handle every
-/// redirect itself, so a `Location` off the API origin is never followed with credentials
-/// attached. Timeouts belong to the implementation, since the SDK cannot interrupt a
+/// An implementation **must not follow redirects**: a 3xx comes back to the SDK as the
+/// response it is, and the SDK decides. The API's JSON operations never redirect, so the
+/// client maps a 3xx like any other non-2xx status; the one flow that does follow a
+/// `Location` (SPEC §13's two-hop download, not part of this scaffold) does so itself, so
+/// that credentials never travel to a host off the API origin. Timeouts belong to the implementation, since the SDK cannot interrupt a
 /// transport it does not know; the operation deadline of
 /// [`crate::ClientBuilder::operation_deadline`] bounds the whole call from above.
 ///

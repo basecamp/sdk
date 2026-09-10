@@ -10,7 +10,7 @@ use crate::client::{AccountClient, Response};
 use crate::error::Error;
 use crate::hooks::OperationInfo;
 use crate::operation::Operation;
-use crate::route::Route;
+use crate::route::{Pagination, Route};
 
 /// One page of a paginated read, with the cursor {{.AppTitle}} handed out for the next one.
 ///
@@ -43,9 +43,14 @@ impl<T> Page<T> {
             .header("link")
             .and_then(parse_next_link)
             .map(|target| response.url.join(&target).map_err(|_| target));
-        let total_count = response
-            .header("x-total-count")
-            .and_then(|value| value.trim().parse().ok());
+        let total_count = match route.pagination {
+            Pagination::Link {
+                total_count_header: Some(name),
+                ..
+            } => response.header(name),
+            _ => None,
+        }
+        .and_then(|value| value.trim().parse().ok());
         Page {
             value,
             next,

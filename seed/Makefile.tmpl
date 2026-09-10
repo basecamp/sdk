@@ -80,6 +80,12 @@ url-routes-check:
 sync-api-version:
 	@echo "==> Syncing API version..."
 	./scripts/sync-api-version.sh
+	@# Rust: the generator emits this constant from the same openapi.json, so the rewrite
+	@# is idempotent after rs-generate-services; it exists so a spec bump that skips
+	@# regeneration still leaves the constant true.
+	@API_VER=$$(jq -r '.info.version' openapi.json); \
+	[ ! -f rust/sdk/src/generated/mod.rs ] || \
+		perl -pi -e "s/^pub const API_VERSION: &str = \".*\";/pub const API_VERSION: &str = \"$$API_VER\";/" rust/sdk/src/generated/mod.rs
 
 sync-api-version-check:
 	@echo "==> Checking API version sync..."
@@ -347,7 +353,13 @@ rs-deny:
 	@command -v cargo-deny >/dev/null || (echo "Install cargo-deny: cargo install cargo-deny --locked (or brew install cargo-deny)" && exit 1)
 	@echo "==> cargo deny (rust + conformance/runner/rust)..."
 	cargo deny --manifest-path rust/Cargo.toml --locked check
-	cargo deny --manifest-path conformance/runner/rust/Cargo.toml --config rust/deny.toml --locked check
+	@# The runner is initialized in the conformance phase, after the crate; until then
+	@# there is nothing to audit there and rs-check must still pass.
+	@if [ -f conformance/runner/rust/Cargo.toml ]; then \
+		cargo deny --manifest-path conformance/runner/rust/Cargo.toml --config rust/deny.toml --locked check; \
+	else \
+		echo "  conformance/runner/rust not initialized yet; skipping its audit"; \
+	fi
 
 # Regenerate rust/sdk/src/generated from openapi.json + behavior-model.json.
 # The generator is a workspace member (rust/generator, ported per repo — see
@@ -441,7 +453,7 @@ ifndef VERSION
 	$(error VERSION is required. Usage: make bump VERSION=x.y.z)
 endif
 	@echo "==> Bumping version to $(VERSION)..."
-	./scripts/bump-version.sh $(VERSION)
+	./scripts/sync-version.sh $(VERSION)
 	@echo "  Version bumped to $(VERSION)"
 
 release:

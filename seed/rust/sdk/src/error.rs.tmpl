@@ -245,7 +245,7 @@ impl Error {
         error.inner.request_id = headers
             .get("x-request-id")
             .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
+            .map(truncate);
         error.inner.field_errors = field_errors;
         if !body.is_empty() {
             let kept = body.len().min(MAX_ERROR_BODY_BYTES);

@@ -97,5 +97,5 @@ all.
 
 The crate follows the repository's `vX.Y.Z` tags. Pre-1.0, a breaking change lands in a
 `0.MINOR` release and an additive one in a `0.x.PATCH`. The minimum supported Rust version
-is 1.88 and is enforced in CI; it moves only in a `0.MINOR` release, never past the
-second-newest stable.
+is 1.88 (`rust-version` in `Cargo.toml`, which cargo enforces at build time); it moves
+only in a `0.MINOR` release, never past the second-newest stable.

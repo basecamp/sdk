@@ -731,6 +731,13 @@ fn parse_base_url(base_url: &str) -> Result<Url, Error> {
     if url.cannot_be_a_base() || url.host_str().is_none() {
         return Err(Error::usage(format!("base URL {base_url} has no host")));
     }
+    // Credentials travel in the Authorization header, never in the URL: a userinfo part
+    // would be stored, printed by every Debug and sent to the transport on each request.
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Error::usage(
+            "base URL must not carry a username or password",
+        ));
+    }
     require_secure_endpoint(&url).map_err(|_| Error::usage("base URL must use HTTPS"))?;
     url.set_query(None);
     url.set_fragment(None);
@@ -886,6 +893,15 @@ mod tests {
                 .unwrap_err()
                 .message(),
             "base URL must use HTTPS"
+        );
+        let with_userinfo = Config::default().with_base_url("https://user:secret@api.example.com");
+        assert_eq!(
+            Client::builder(with_userinfo)
+                .access_token("a")
+                .build()
+                .unwrap_err()
+                .message(),
+            "base URL must not carry a username or password"
         );
     }
 
