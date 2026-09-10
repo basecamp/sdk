@@ -3,12 +3,17 @@
 # default policy; only the templates carry these baseline exceptions, which exist
 # because the templates predate the SHA-pinned, zizmor-clean release workflows in
 # basecamp-sdk. Each entry should go when the template it names is re-extracted
-# from there.
+# from there. Anything not listed keeps the default policy (hash-pin for third
+# parties, ref-pin for actions/* and github/*), so a new dependency cannot ride in
+# on a floating ref.
 rules:
   unpinned-uses:
     config:
       policies:
-        "*": ref-pin
+        basecamp/sdk: ref-pin    # the seed's own composite actions, tracked at @main by convention
+        ruby/setup-ruby: ref-pin
+        gradle/actions: ref-pin
+        rubygems/configure-rubygems-credentials: ref-pin
   cache-poisoning:
     ignore:
       - release-go.yml
