@@ -152,7 +152,7 @@ runs:
         if grep -q "typecheck\|go vet\|rubocop\|clippy\|cargo check" Makefile 2>/dev/null; then pass "4B.6"; else fail "4B.6" "Type checking not in Makefile"; fi
 
         # 4B.7 Linting
-        if grep -q "lint" Makefile 2>/dev/null; then pass "4B.7"; else fail "4B.7" "Linting not in Makefile"; fi
+        if grep -q "lint\|clippy" Makefile 2>/dev/null; then pass "4B.7"; else fail "4B.7" "Linting not in Makefile"; fi
 
         # 4C.3 GitHub Release
         if [ -f .github/workflows/release-github.yml ]; then pass "4C.3"; else fail "4C.3" "release-github.yml missing"; fi
