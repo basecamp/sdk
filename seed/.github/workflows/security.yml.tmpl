@@ -95,9 +95,12 @@ jobs:
           cache-dependency-path: 'go/go.sum'
 
       # Pinned for Scorecard PinnedDependencies; the vulnerability database is
-      # fetched live at scan time regardless of the tool version.
+      # fetched live at scan time regardless of the tool version. v1.1.4 is the
+      # newest release that builds on the seed's Go floor (go.mod says 1.23;
+      # v1.2.0 and later require 1.25, and setup-go exports GOTOOLCHAIN=local,
+      # so the toolchain cannot be fetched on demand). Raise it with go.mod.
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
       - name: Run govulncheck
         run: govulncheck ./...
