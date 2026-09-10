@@ -1,5 +1,7 @@
 name: Release Orchestrate
-description: Polls per-language release workflows and creates GitHub Release when all succeed
+description: >-
+  Polls the push-triggered per-language release workflows for a tag and creates
+  the GitHub Release when all succeed
 
 inputs:
   version:
@@ -9,7 +11,9 @@ inputs:
     description: GitHub token for API calls
     required: true
   languages:
-    description: Comma-separated list of languages to wait for (e.g., go,typescript,ruby,kotlin,swift)
+    description: >-
+      Comma-separated list of languages to wait for; each one needs a
+      release-<lang>.yml workflow (e.g., go,typescript,ruby,kotlin,swift,rust)
     required: true
   poll-interval:
     description: Seconds between polls
@@ -36,88 +40,8 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
-      run: |
-        version="${{ inputs.version }}"
-        version="${version#v}"
-        tag="v${version}"
-        IFS=',' read -ra LANGUAGES <<< "${{ inputs.languages }}"
-        elapsed=0
-        timeout=${{ inputs.timeout }}
-        interval=${{ inputs.poll-interval }}
-
-        declare -A status
-        for lang in "${LANGUAGES[@]}"; do
-          status[$lang]="pending"
-        done
-
-        echo "Waiting for release workflows for $tag..."
-
-        while [ $elapsed -lt $timeout ]; do
-          all_done=true
-
-          for lang in "${LANGUAGES[@]}"; do
-            [ "${status[$lang]}" = "success" ] && continue
-
-            workflow="release-${lang}.yml"
-            # Use --event push and filter by headBranch matching the tag.
-            # --branch may not reliably resolve tag-triggered runs.
-            result=$(gh run list \
-              --workflow="$workflow" \
-              --event=push \
-              --limit=5 \
-              --json status,conclusion,headBranch \
-              -q "[.[] | select(.headBranch == \"$tag\")] | .[0]" 2>/dev/null || echo '{}')
-            run_status=$(echo "$result" | jq -r '.status // "not_found"')
-            run_conclusion=$(echo "$result" | jq -r '.conclusion // "none"')
-
-            if [ "$run_status" = "completed" ]; then
-              if [ "$run_conclusion" = "success" ]; then
-                status[$lang]="success"
-                echo "  $lang: success"
-              else
-                status[$lang]="failed"
-                echo "::error::$lang release workflow failed ($run_conclusion)"
-              fi
-            else
-              all_done=false
-            fi
-          done
-
-          if [ "$all_done" = true ]; then
-            break
-          fi
-
-          sleep "$interval"
-          elapsed=$((elapsed + interval))
-          echo "  Waiting... ($elapsed/${timeout}s)"
-        done
-
-        # Check results
-        all_success=true
-        failed_langs=""
-        for lang in "${LANGUAGES[@]}"; do
-          if [ "${status[$lang]}" != "success" ]; then
-            all_success=false
-            failed_langs="$failed_langs $lang"
-          fi
-        done
-
-        if [ "$all_success" = true ]; then
-          echo "All release workflows succeeded. Creating GitHub Release..."
-
-          gh release create "$tag" \
-            --title "$tag" \
-            --generate-notes \
-            --latest
-
-          release_url=$(gh release view "$tag" --json url -q '.url')
-
-          echo "release-url=$release_url" >> "$GITHUB_OUTPUT"
-          echo "status=success" >> "$GITHUB_OUTPUT"
-          echo "GitHub Release created: $release_url"
-        else
-          echo "status=partial-failure" >> "$GITHUB_OUTPUT"
-          echo "release-url=" >> "$GITHUB_OUTPUT"
-          echo "::error::Release incomplete. Failed:$failed_langs. Re-run failed workflows with: gh workflow run release-<lang>.yml"
-          exit 1
-        fi
+        VERSION: ${{ inputs.version }}
+        LANGUAGES: ${{ inputs.languages }}
+        POLL_INTERVAL: ${{ inputs.poll-interval }}
+        TIMEOUT: ${{ inputs.timeout }}
+      run: '"$GITHUB_ACTION_PATH/orchestrate.sh"'

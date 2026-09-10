@@ -1,0 +1,4 @@
+[
+  {"databaseId": 606, "event": "workflow_dispatch", "headBranch": "v1.2.3", "status": "completed", "conclusion": "success", "url": "https://github.example/runs/606"},
+  {"databaseId": 605, "event": "push", "headBranch": "v1.2.3", "status": "completed", "conclusion": "failure", "url": "https://github.example/runs/605"}
+]

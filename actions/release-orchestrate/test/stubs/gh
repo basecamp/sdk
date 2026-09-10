@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Stub gh for the orchestrator tests. Every invocation is appended to $GH_LOG.
+#
+#   gh run list --workflow=W --event=E --limit=N --json F -q EXPR
+#     Answers from $GH_FIXTURES/W[.K].json: an array of runs, newest first, each
+#     with an "event" field. Like the real CLI it applies the --event filter, then
+#     --limit, then keeps only the --json fields, then runs EXPR with jq (a null
+#     result prints as a blank line). W.K.json (K = number of earlier list calls
+#     for W, from 0) takes precedence over W.json, so a fixture can change between
+#     polls. GH_LIST_FAIL_ONCE=1 makes the first list call fail; GH_STDERR_NOISE=1
+#     writes GH_DEBUG-style diagnostics to stderr on success;
+#     GH_LIST_FAIL_AFTER=N fails every list call after the first N (across workflows).
+#   gh release create TAG ...   logs; fails when GH_RELEASE_FAIL=1
+#   gh release view TAG --json url -q .url   prints a fake URL; fails when GH_VIEW_FAIL=1
+set -euo pipefail
+echo "$*" >> "$GH_LOG"
+
+case "$1 $2" in
+  "run list")
+    workflow=""; event=""; query=""; limit=30; fields=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --workflow=*) workflow="${1#--workflow=}" ;;
+        --event=*) event="${1#--event=}" ;;
+        --limit=*) limit="${1#--limit=}" ;;
+        --json) fields="$2"; shift ;;
+        -q) query="$2"; shift ;;
+      esac
+      shift
+    done
+    if [ "${GH_LIST_FAIL_ONCE:-}" = "1" ] && [ ! -f "$GH_STATE/failed-once" ]; then
+      touch "$GH_STATE/failed-once"
+      echo "HTTP 502: bad gateway" >&2
+      exit 1
+    fi
+    total="$GH_STATE/calls-total"
+    t=0
+    [ -f "$total" ] && t=$(cat "$total")
+    echo $((t + 1)) > "$total"
+    if [ -n "${GH_LIST_FAIL_AFTER:-}" ] && [ "$t" -ge "$GH_LIST_FAIL_AFTER" ]; then
+      echo "HTTP 502: bad gateway" >&2
+      exit 1
+    fi
+    counter="$GH_STATE/calls-$workflow"
+    n=0
+    [ -f "$counter" ] && n=$(cat "$counter")
+    echo $((n + 1)) > "$counter"
+    fixture="$GH_FIXTURES/$workflow.$n.json"
+    [ -f "$fixture" ] || fixture="$GH_FIXTURES/$workflow.json"
+    [ -f "$fixture" ] || fixture=/dev/null
+    runs=$(cat "$fixture"); [ -n "$runs" ] || runs='[]'
+    [ "${GH_STDERR_NOISE:-}" != "1" ] || echo "* Request at $(date -u +%FT%TZ)" >&2
+    jq -r --arg event "$event" --argjson limit "$limit" --arg fields "$fields" \
+      "[.[] | select(\$event == \"\" or .event == \$event)] | .[:\$limit]
+       | map(with_entries(select(.key as \$k | \$fields | split(\",\") | index(\$k))))
+       | $query | if . == null then \"\" else . end" <<< "$runs"
+    ;;
+  "release create")
+    [ "${GH_RELEASE_FAIL:-}" != "1" ] || { echo "HTTP 422: tag already has a release" >&2; exit 1; }
+    ;;
+  "release view")
+    [ "${GH_VIEW_FAIL:-}" != "1" ] || { echo "HTTP 404: release not found" >&2; exit 1; }
+    echo "https://github.example/releases/tag/$3"
+    ;;
+  *)
+    echo "unexpected gh call: $*" >&2
+    exit 99
+    ;;
+esac
