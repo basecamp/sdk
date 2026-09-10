@@ -27,6 +27,8 @@ jobs:
             runner: macos-15
           - language: kotlin
             runner: ubuntu-latest
+          - language: rust
+            runner: ubuntu-latest
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
