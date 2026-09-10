@@ -9,20 +9,23 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  security-events: write
+permissions: {}
 
 jobs:
   trivy-go:
     name: Trivy (Go SDK)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './go'
@@ -33,7 +36,7 @@ jobs:
           output: 'trivy-go-results.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         if: always()
         continue-on-error: true  # Requires GitHub Advanced Security
         with:
@@ -43,12 +46,17 @@ jobs:
   trivy-typescript:
     name: Trivy (TypeScript SDK)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './typescript'
@@ -59,7 +67,7 @@ jobs:
           output: 'trivy-ts-results.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         if: always()
         continue-on-error: true  # Requires GitHub Advanced Security
         with:
@@ -69,21 +77,27 @@ jobs:
   govulncheck:
     name: Go Vulnerability Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: go
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: 'go/go.mod'
           cache-dependency-path: 'go/go.sum'
 
+      # Pinned for Scorecard PinnedDependencies; the vulnerability database is
+      # fetched live at scan time regardless of the tool version.
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
 
       - name: Run govulncheck
         run: govulncheck ./...
@@ -91,15 +105,19 @@ jobs:
   gosec:
     name: Go Security Checker
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: go
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: 'go/go.mod'
           cache-dependency-path: 'go/go.sum'
@@ -113,15 +131,19 @@ jobs:
   npm-audit:
     name: npm Audit (TypeScript SDK)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: typescript
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
 
@@ -134,12 +156,17 @@ jobs:
   trivy-ruby:
     name: Trivy (Ruby SDK)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@e368e328979b113139d6f9068e03accaed98a518 # v0.34.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './ruby'
@@ -150,7 +177,7 @@ jobs:
           output: 'trivy-ruby-results.sarif'
 
       - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         if: always()
         continue-on-error: true
         with:
@@ -160,22 +187,26 @@ jobs:
   bundler-audit:
     name: Bundler Audit (Ruby SDK)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: ruby
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
         with:
           ruby-version: '3.3'
           bundler-cache: true
           working-directory: ruby
 
       - name: Install bundler-audit
-        run: gem install bundler-audit
+        run: gem install bundler-audit # zizmor: ignore[adhoc-packages] -- bundler-audit is the auditing tool itself; adding it to the SDK's Gemfile would make the gem under audit depend on its own auditor
 
       - name: Update vulnerability database
         run: bundle-audit update
@@ -186,21 +217,27 @@ jobs:
   gradle-dependency-check:
     name: Gradle Dependency Check (Kotlin SDK)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: kotlin
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-provider: basic
 
       - name: Run dependency verification
         run: ./gradlew :{{.KotlinPackage}}:dependencies --scan
@@ -211,12 +248,16 @@ jobs:
   swift-audit:
     name: Swift Dependency Audit
     runs-on: macos-15
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: swift
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Audit Swift dependencies
         run: |
