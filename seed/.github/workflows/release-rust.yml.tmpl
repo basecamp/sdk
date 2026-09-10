@@ -28,10 +28,20 @@ jobs:
       contents: read
 
   test:
-    name: Test Rust SDK
+    name: Test Rust SDK (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # The MSRV the crate declares (`rust-version` in Cargo.toml) and the stable
+        # toolchain rust-toolchain.toml pins. The env var outranks the toolchain file,
+        # so the MSRV lane really builds on 1.88: a crate published with a false
+        # rust-version claim fails for every consumer holding to it.
+        toolchain: ['1.88', '1.98.1']
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     defaults:
       run:
         working-directory: rust
@@ -43,34 +53,49 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
-          toolchain: '1.98.1'
+          toolchain: ${{ matrix.toolchain }}
           components: clippy, rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         # zizmor: ignore[cache-poisoning] -- cached deps are for testing, not release artifact generation; the package and publish jobs below build without the cache
         with:
+          key: ${{ matrix.toolchain }}
           workspaces: |
             rust
             conformance/runner/rust
 
+      # The MSRV lane: the library, with every feature and with none, and its unit
+      # tests on exactly rust-version. Lints, docs and the audits are stable's job.
+      - name: Build and test on the MSRV
+        if: matrix.toolchain == '1.88'
+        run: |
+          cargo build -p "$CRATE" --all-features --locked
+          cargo build -p "$CRATE" --no-default-features --locked
+          cargo test -p "$CRATE" --all-features --locked
+
       - name: Format
+        if: matrix.toolchain != '1.88'
         run: cargo fmt --all --check
 
       - name: Clippy
+        if: matrix.toolchain != '1.88'
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Test
+        if: matrix.toolchain != '1.88'
         run: cargo test --workspace --all-features --locked
 
       # Without default features the crate ships no transport; that configuration is
       # advertised, so it is built and its unit tests run before anything is published.
       - name: Build and test without default features
+        if: matrix.toolchain != '1.88'
         run: |
           cargo build -p "$CRATE" --no-default-features --locked
           cargo test -p "$CRATE" --no-default-features --lib --locked
 
       - name: Docs
+        if: matrix.toolchain != '1.88'
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --all-features -p "$CRATE" --locked
@@ -78,14 +103,17 @@ jobs:
       # Same script `make rs-check-drift` runs: regenerate into a tmpdir and diff,
       # never in place, so a stale module the sweep would have removed is seen too.
       - name: Check generated code drift
+        if: matrix.toolchain != '1.88'
         run: ../scripts/check-rust-service-drift.sh
 
       - name: Install cargo-deny
+        if: matrix.toolchain != '1.88'
         uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
         with:
           tool: cargo-deny@0.20.2
 
       - name: Advisories, licenses, bans (both workspaces)
+        if: matrix.toolchain != '1.88'
         run: |
           cargo deny --manifest-path Cargo.toml --locked check
           cargo deny --manifest-path ../conformance/runner/rust/Cargo.toml --config deny.toml --locked check

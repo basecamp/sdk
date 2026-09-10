@@ -37,8 +37,12 @@ for RUBY_VERSION_FILE in ruby/lib/*/version.rb; do
   fi
 done
 
-# Swift
-SWIFT_CONFIG=$(find swift/Sources -name "*Config.swift" -maxdepth 3 2>/dev/null | head -1)
+# Swift. A narrower profile may not carry the tree at all; `find` on a missing
+# directory exits 1, which under `set -e` would end the script here.
+SWIFT_CONFIG=""
+if [ -d swift/Sources ]; then
+  SWIFT_CONFIG=$(find swift/Sources -name "*Config.swift" -maxdepth 3 | head -1)
+fi
 if [ -n "$SWIFT_CONFIG" ]; then
   perl -pi -e "s/^(\s*(?:public )?static let version = \")[^\"]*\"/\${1}$VERSION\"/" "$SWIFT_CONFIG"
   echo "  Updated $SWIFT_CONFIG"
@@ -50,7 +54,10 @@ if [ -f kotlin/sdk/build.gradle.kts ]; then
   perl -pi -e "s/^(version = \")[^\"]*\"/\${1}$VERSION\"/" kotlin/sdk/build.gradle.kts
   echo "  Updated kotlin/sdk/build.gradle.kts"
 fi
-KOTLIN_CONFIG=$(find kotlin/sdk/src/commonMain/kotlin -name "*Config.kt" 2>/dev/null | head -1)
+KOTLIN_CONFIG=""
+if [ -d kotlin/sdk/src/commonMain/kotlin ]; then
+  KOTLIN_CONFIG=$(find kotlin/sdk/src/commonMain/kotlin -name "*Config.kt" | head -1)
+fi
 if [ -n "$KOTLIN_CONFIG" ]; then
   perl -pi -e "s/^(\s*const val VERSION = \")[^\"]*\"/\${1}$VERSION\"/" "$KOTLIN_CONFIG"
   echo "  Updated $KOTLIN_CONFIG"

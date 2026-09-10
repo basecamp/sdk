@@ -609,7 +609,19 @@ impl AccountClient {
             let mut url = self.shared.base_url.clone();
             let prefix = self.shared.base_url.path().trim_end_matches('/');
             let account = account_segment(&self.account_id)?;
-            url.set_path(&format!("{prefix}/{account}/{path}"));
+            let built = format!("{prefix}/{account}/{path}");
+            url.set_path(&built);
+            // The parser folds `.` and `..` segments (percent-encoded or not), so a
+            // parameter value of either would aim the request — credentials attached —
+            // at a path the route never modelled. The path the URL kept must be the
+            // path the route built.
+            if url.path() != built {
+                return Err(Error::usage(format!(
+                    "request path {built:?} is not the path {} would send: a path parameter is \
+                     `.` or `..`",
+                    operation.route.id
+                )));
+            }
             url
         };
         if !operation.query.is_empty() {
@@ -793,6 +805,26 @@ mod tests {
         params: &[RouteParam {
             name: "widgetId",
             kind: ParamKind::Int64,
+        }],
+        body: BodyKind::None,
+        response: Representation::Json,
+        pagination: Pagination::None,
+        write: None,
+        deprecated: false,
+        metadata: &META,
+    };
+
+    /// A route whose parameter is a whole path segment, where a dot-only value would fold.
+    static LIST_CHILDREN: Route = Route {
+        id: "ListChildren",
+        service: "Children",
+        method: crate::http::Method::GET,
+        path: "/parents/{slug}/children.json",
+        pattern: "/parents/{slug}/children",
+        resource_type: "child",
+        params: &[RouteParam {
+            name: "slug",
+            kind: ParamKind::String,
         }],
         body: BodyKind::None,
         response: Representation::Json,
@@ -1053,6 +1085,27 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::ApiError);
         assert_eq!(error.http_status(), None);
         assert!(!error.is_retryable());
+    }
+
+    #[tokio::test]
+    async fn dot_only_path_parameters_are_refused_before_anything_is_sent() {
+        let http = Arc::new(Scripted::new(vec![]));
+        let account = client(http.clone());
+        for value in [".", ".."] {
+            let error = account
+                .execute(account.operation(&LIST_CHILDREN, &[&value]))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), ErrorCode::Usage, "{value}: {error:?}");
+            assert!(error.message().contains("ListChildren"), "{error:?}");
+        }
+        assert!(http.sent.lock().unwrap().is_empty());
+        // A dot inside a segment is only a character: `{widgetId}.json` with `..` is
+        // `...json`, which the parser keeps and the server answers as it sees fit.
+        let url = account
+            .url_for(&account.operation(&GET_WIDGET, &[&".."]))
+            .unwrap();
+        assert_eq!(url.path(), "/999/widgets/...json");
     }
 
     #[test]
