@@ -22,10 +22,12 @@ if [ -f typescript/package.json ]; then
 fi
 
 # Ruby
-if [ -f ruby/lib/*/version.rb ]; then
-  perl -pi -e "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" ruby/lib/*/version.rb
-  echo "  Updated ruby version.rb"
-fi
+for RUBY_VERSION_FILE in ruby/lib/*/version.rb; do
+  if [ -f "$RUBY_VERSION_FILE" ]; then
+    perl -pi -e "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" "$RUBY_VERSION_FILE"
+    echo "  Updated $RUBY_VERSION_FILE"
+  fi
+done
 
 # Swift
 SWIFT_CONFIG=$(find swift/Sources -name "*Config.swift" -maxdepth 3 2>/dev/null | head -1)
@@ -38,6 +40,41 @@ fi
 if [ -f kotlin/sdk/build.gradle.kts ]; then
   perl -pi -e "s/version = \".*\"/version = \"$VERSION\"/" kotlin/sdk/build.gradle.kts
   echo "  Updated kotlin/sdk/build.gradle.kts"
+fi
+
+# Rust — the ONE Rust version constant (code reads env!("CARGO_PKG_VERSION")).
+# The edit is bounded to the [package] table: a bare `^version = ` sed also
+# matches `[dependencies]` lines and any reordered table, and cargo has no
+# built-in setter without cargo-edit.
+if [ -f rust/sdk/Cargo.toml ]; then
+  awk -v want="version = \"$VERSION\"" '
+    /^\[/ { intable = ($0 == "[package]") }
+    intable && /^version = "/ { $0 = want }
+    { print }
+  ' rust/sdk/Cargo.toml > rust/sdk/Cargo.toml.tmp \
+    && cat rust/sdk/Cargo.toml.tmp > rust/sdk/Cargo.toml \
+    && rm rust/sdk/Cargo.toml.tmp
+  # Read it back through cargo's own parser: an awk pattern that matched nothing
+  # exits 0, and a bump that announced success over an unchanged crate version
+  # would only be caught at `make release`.
+  RUST_VERSION=$(cd rust && cargo metadata --no-deps --format-version 1 2>/dev/null \
+    | jq -r '.packages[] | select(.name == "{{.AppName}}-sdk") | .version')
+  if [ "$RUST_VERSION" != "$VERSION" ]; then
+    echo "ERROR: rust/sdk/Cargo.toml [package] version reads $RUST_VERSION after the edit, not $VERSION" >&2
+    exit 1
+  fi
+  echo "  Updated rust/sdk/Cargo.toml"
+  # Both lockfiles record the SDK's version (the workspace's own members in
+  # rust/Cargo.lock; the path dep on ../../../rust/sdk in the conformance
+  # runner's). Both are tracked and every consumer passes --locked, so a stale
+  # one fails the next build instead of being rewritten silently. `-w` limits
+  # the update to workspace members; --offline because nothing else moves.
+  (cd rust && cargo update -q -w --offline)
+  echo "  Updated rust/Cargo.lock"
+  if [ -f conformance/runner/rust/Cargo.toml ]; then
+    (cd conformance/runner/rust && cargo update -q -w --offline)
+    echo "  Updated conformance/runner/rust/Cargo.lock"
+  fi
 fi
 
 echo "Done. All versions set to $VERSION."
