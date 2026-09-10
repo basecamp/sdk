@@ -1,0 +1,55 @@
+[package]
+name = "{{.AppName}}-sdk"
+version = "0.1.0"
+description = "Official {{.AppTitle}} API client, generated from the Smithy model in spec/"
+readme = "README.md"
+homepage = "https://github.com/{{.GithubOrg}}/{{.GithubRepo}}"
+documentation = "https://docs.rs/{{.AppName}}-sdk"
+keywords = ["{{.AppName}}", "37signals", "api", "sdk"]
+categories = ["api-bindings", "web-programming::http-client"]
+include = ["src/**", "examples/**", "README.md"]
+publish = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "{{.AppName}}_sdk"
+path = "src/lib.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["reqwest", "rustls-tls", "tracing"]
+# The HTTP client the SDK ships. Off, an application supplies its own `http::HttpClient`.
+reqwest = ["dep:reqwest"]
+# TLS for the shipped client. rustls only: deny.toml bans openssl-sys, so a native-tls
+# feature needs that entry removed and its own CI lane before it can exist.
+rustls-tls = ["reqwest", "reqwest/rustls"]
+# One `tracing` span per operation.
+tracing = ["dep:tracing"]
+
+[dependencies]
+async-trait = "0.1"
+bytes = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http = "1"
+percent-encoding = "2"
+rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["http2"], optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "2"
+tokio = { version = "1", features = ["sync", "time"] }
+tracing = { version = "0.1", optional = true }
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync", "test-util"] }
+
+[lints]
+workspace = true
