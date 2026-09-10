@@ -49,7 +49,7 @@ Variables in use: `.AppTitle`, `.AppName`, `.AppLower`, `.SwiftPackage`,
 
 ## The Makefile target vocabulary is a contract
 
-Language prefixes are abbreviated — `go-`, `ts-`, `rb-`, `swift-`, `kt-` — while the
+Language prefixes are abbreviated — `go-`, `ts-`, `rb-`, `swift-`, `kt-`, `rs-` — while the
 language *names* used in CI inputs and in prose are spelled out. That gap is the trap:
 `ruby-check` and `kotlin-generate-services` read as obviously correct and do not exist.
 `MAKEFILE-CONVENTION.md` is the authority for the abbreviations.
