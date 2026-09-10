@@ -378,7 +378,21 @@ impl AccountClient {
             http.status = tracing::field::Empty,
             request_id = tracing::field::Empty,
         );
-        self.attempts(operation, deadline).instrument(span).await
+        let mut observed = None;
+        let result = self
+            .attempts(operation, deadline, &mut observed)
+            .instrument(span.clone())
+            .await;
+        // The span describes the attempt the operation ended on. A response an earlier
+        // attempt retried past says nothing about how this one came out, and an attempt
+        // that failed before a status arrived leaves both fields empty.
+        if let Some(observed) = observed {
+            span.record("http.status", observed.status.as_u16());
+            if let Some(id) = &observed.request_id {
+                span.record("request_id", id.as_str());
+            }
+        }
+        result
     }
 
     #[cfg(not(feature = "tracing"))]
@@ -387,15 +401,18 @@ impl AccountClient {
         operation: &Operation,
         deadline: &Deadline,
     ) -> Result<Response, Error> {
-        self.attempts(operation, deadline).await
+        self.attempts(operation, deadline, &mut None).await
     }
 
-    /// SPEC §7's loop, written out in the order the specification states it.
+    /// SPEC §7's loop, written out in the order the specification states it. `observed`
+    /// is left holding the status and request id of the attempt the loop ended on, or
+    /// nothing when that attempt failed before a status arrived.
     #[allow(clippy::too_many_lines)]
     async fn attempts(
         &self,
         operation: &Operation,
         deadline: &Deadline,
+        observed: &mut Option<Observed>,
     ) -> Result<Response, Error> {
         let route = operation.route;
         let retry = &route.metadata.retry;
@@ -425,6 +442,7 @@ impl AccountClient {
             // verdict of the refresh that produced them, where a newer one would refresh
             // again.
             let generation = self.shared.auth.generation();
+            *observed = None;
             let request = deadline.bound(self.prepare(operation, &url)).await?;
             let info = RequestInfo {
                 method: operation.method.clone(),
@@ -471,18 +489,14 @@ impl AccountClient {
                     let status = response.status();
                     let retry_after =
                         parse_retry_after_header(response.headers(), chrono::Utc::now());
-                    #[cfg(feature = "tracing")]
-                    {
-                        let span = tracing::Span::current();
-                        span.record("http.status", status.as_u16());
-                        if let Some(id) = response
+                    *observed = Some(Observed {
+                        status,
+                        request_id: response
                             .headers()
                             .get("x-request-id")
                             .and_then(|v| v.to_str().ok())
-                        {
-                            span.record("request_id", id);
-                        }
-                    }
+                            .map(str::to_owned),
+                    });
                     if status == StatusCode::UNAUTHORIZED
                         && !refreshed
                         && attempt < budget
@@ -536,6 +550,10 @@ impl AccountClient {
                                 },
                             );
                         });
+                        // Nothing of the response is read past here, so the connection
+                        // its body holds goes back to the pool before the wait rather
+                        // than after it.
+                        drop(response);
                         let delay = match retry_after {
                             Some(seconds) => Duration::from_secs(u64::from(seconds)),
                             None => backoff_with_jitter(
@@ -709,6 +727,13 @@ impl AccountClient {
     }
 }
 
+/// What an attempt received before the loop went on: the tracing span's fields.
+#[cfg_attr(not(feature = "tracing"), allow(dead_code))]
+struct Observed {
+    status: StatusCode,
+    request_id: Option<String>,
+}
+
 #[cfg(feature = "reqwest")]
 fn shipped_http_client(timeout: Duration) -> Result<Arc<dyn HttpClient>, Error> {
     Ok(Arc::new(crate::http::ReqwestClient::with_timeout(timeout)?))
@@ -836,13 +861,16 @@ mod tests {
         metadata: &META,
     };
 
-    /// One scripted answer: status, headers, body.
+    /// One scripted answer: status, headers, body. Status 0 is a connection that failed
+    /// before any status arrived.
     type Answer = (u16, Vec<(&'static str, &'static str)>, &'static str);
 
     /// An [`HttpClient`] that answers from a script and records what it was sent.
     struct Scripted {
         answers: Mutex<Vec<Answer>>,
         sent: Mutex<Vec<Request<Bytes>>>,
+        /// The bodies handed out that have not been dropped yet.
+        live_bodies: Arc<AtomicUsize>,
     }
 
     impl Scripted {
@@ -850,7 +878,44 @@ mod tests {
             Scripted {
                 answers: Mutex::new(answers),
                 sent: Mutex::new(Vec::new()),
+                live_bodies: Arc::new(AtomicUsize::new(0)),
             }
+        }
+
+        fn body(&self, text: &'static str) -> Body {
+            self.live_bodies.fetch_add(1, Ordering::SeqCst);
+            let bytes = Bytes::from_static(text.as_bytes());
+            let length = Some(bytes.len() as u64);
+            let stream = Counted {
+                chunk: Some(bytes),
+                _live: LiveBody(self.live_bodies.clone()),
+            };
+            Body::from_stream(stream, length)
+        }
+    }
+
+    /// A one-chunk body stream that counts itself as live until it is dropped.
+    struct Counted {
+        chunk: Option<Bytes>,
+        _live: LiveBody,
+    }
+
+    struct LiveBody(Arc<AtomicUsize>);
+
+    impl Drop for LiveBody {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl futures_util::Stream for Counted {
+        type Item = Result<Bytes, Error>;
+
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            std::task::Poll::Ready(self.chunk.take().map(Ok))
         }
     }
 
@@ -861,7 +926,13 @@ mod tests {
             let mut answers = self.answers.lock().unwrap();
             assert!(!answers.is_empty(), "the script ran out of answers");
             let (status, headers, body) = answers.remove(0);
-            let mut response = HttpResponse::new(Body::from(body));
+            if status == 0 {
+                return Err(Error::network(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "connection reset",
+                )));
+            }
+            let mut response = HttpResponse::new(self.body(body));
             *response.status_mut() = StatusCode::from_u16(status).unwrap();
             for (name, value) in headers {
                 response
@@ -1025,6 +1096,144 @@ mod tests {
         assert!(error.is_deadline_exceeded(), "{error:?}");
         assert_eq!(http.sent.lock().unwrap().len(), 1);
         assert_eq!(counting.retries.load(Ordering::SeqCst), 0);
+    }
+
+    /// How many of the transport's bodies are still alive as each resend is announced.
+    struct BodiesAtRetry {
+        live: Arc<AtomicUsize>,
+        seen: Mutex<Vec<usize>>,
+    }
+
+    impl Hooks for BodiesAtRetry {
+        fn on_retry(&self, _: &RequestInfo, _: u32, _: &Error, _: Duration) {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(self.live.load(Ordering::SeqCst));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_retried_response_is_released_before_the_wait() {
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![], ""),
+            (429, vec![("retry-after", "0")], ""),
+            (200, vec![], r#"{"id": 1}"#),
+        ]));
+        let bodies = Arc::new(BodiesAtRetry {
+            live: http.live_bodies.clone(),
+            seen: Mutex::new(Vec::new()),
+        });
+        let account = Client::builder(Config {
+            max_jitter: Duration::ZERO,
+            ..Default::default()
+        })
+        .access_token("secret")
+        .http_client(http.clone())
+        .hooks(bodies.clone())
+        .build()
+        .unwrap()
+        .for_account("999");
+        account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap();
+        // The resend is announced after the response is let go and before the wait, so
+        // a body alive then would be one holding its connection through the backoff.
+        assert_eq!(*bodies.seen.lock().unwrap(), vec![0, 0]);
+        assert_eq!(http.live_bodies.load(Ordering::SeqCst), 0);
+    }
+
+    /// A subscriber that keeps the fields recorded on a span after it was made.
+    #[cfg(feature = "tracing")]
+    #[derive(Default)]
+    struct Recording {
+        fields: Mutex<std::collections::BTreeMap<&'static str, String>>,
+    }
+
+    #[cfg(feature = "tracing")]
+    impl tracing::field::Visit for &Recording {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
+            self.fields
+                .lock()
+                .unwrap()
+                .insert(field.name(), format!("{value:?}"));
+        }
+
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            self.fields
+                .lock()
+                .unwrap()
+                .insert(field.name(), value.to_owned());
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    impl tracing::Subscriber for Recording {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+            values.record(&mut &*self);
+        }
+
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+        fn event(&self, _: &tracing::Event<'_>) {}
+
+        fn enter(&self, _: &tracing::span::Id) {}
+
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[cfg(feature = "tracing")]
+    #[tokio::test]
+    async fn the_span_describes_the_attempt_the_operation_ended_on() {
+        use tracing::instrument::WithSubscriber;
+
+        // A 503 retried past, then a connection that fails before any status arrives,
+        // twice: the operation ends on a network error, and the span says nothing of
+        // the 503 or its request id.
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![("x-request-id", "req-1")], ""),
+            (0, vec![], ""),
+            (0, vec![], ""),
+        ]));
+        let account = client(http.clone());
+        let recording = Arc::new(Recording::default());
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .with_subscriber(recording.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::Network, "{error:?}");
+        assert_eq!(http.sent.lock().unwrap().len(), 3);
+        {
+            let fields = recording.fields.lock().unwrap();
+            assert!(fields.is_empty(), "{fields:?}");
+        }
+
+        // The same 503 retried into an answer: the span carries that answer's status and
+        // request id, not the 503's.
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![("x-request-id", "req-1")], ""),
+            (200, vec![("x-request-id", "req-2")], r#"{"id": 1}"#),
+        ]));
+        let account = client(http);
+        let recording = Arc::new(Recording::default());
+        account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .with_subscriber(recording.clone())
+            .await
+            .unwrap();
+        let fields = recording.fields.lock().unwrap();
+        assert_eq!(fields.get("http.status").map(String::as_str), Some("200"));
+        assert_eq!(fields.get("request_id").map(String::as_str), Some("req-2"));
     }
 
     #[tokio::test]
