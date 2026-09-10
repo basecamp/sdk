@@ -1,0 +1,18 @@
+name: Verify Smithy spec
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  smithy-verify:
+    name: Verify Smithy spec
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: basecamp/sdk/actions/smithy-verify@main

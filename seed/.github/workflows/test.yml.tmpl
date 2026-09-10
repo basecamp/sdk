@@ -7,10 +7,7 @@ on:
 
 jobs:
   smithy-verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: basecamp/sdk/actions/smithy-verify@main
+    uses: $/.github/workflows/smithy-verify.yml
 
   conformance:
     needs: smithy-verify
