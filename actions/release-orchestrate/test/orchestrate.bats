@@ -54,6 +54,14 @@ sleeps() { grep -c '^sleep 10$' "$GH_LOG" || true; }
   logged '^release create v1.2.3 '
 }
 
+@test "accepts build metadata in the version" {
+  export VERSION=1.2.3+build.7
+  use_fixture release-go.yml success-build-metadata
+  orchestrate
+  [ "$status" -eq 0 ]
+  logged '^release create v1.2.3+build.7 '
+}
+
 @test "polls only push-triggered runs and matches the tag by headBranch, not position" {
   use_fixture release-go.yml older-and-current
   orchestrate

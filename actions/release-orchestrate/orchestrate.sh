@@ -21,7 +21,7 @@ tag="v${version}"
 timeout="${TIMEOUT:-1800}"
 interval="${POLL_INTERVAL:-30}"
 
-if [[ ! "$version" =~ ^[0-9A-Za-z._-]+$ ]]; then
+if [[ ! "$version" =~ ^[0-9A-Za-z._+-]+$ ]]; then
   echo "::error::Invalid version '${VERSION}' (expected a tag name such as 1.2.3 or v1.2.3)"
   exit 1
 fi
