@@ -56,12 +56,14 @@ run_ids=()
 run_urls=()
 conclusions=()
 statuses=()
+queried=()
 for _ in "${langs[@]}"; do
   states+=("pending")
   run_ids+=("")
   run_urls+=("")
   conclusions+=("")
   statuses+=("")
+  queried+=("no")
 done
 
 gh_stderr=$(mktemp)
@@ -94,6 +96,7 @@ while [ "$elapsed" -lt "$timeout" ]; do
       all_done=false
       continue
     fi
+    queried[i]="yes"
     [ -n "$result" ] || result='{}'
     run_status=$(jq -r '.status // "not_found"' <<< "$result")
     run_conclusion=$(jq -r '.conclusion // "none"' <<< "$result")
@@ -142,8 +145,10 @@ for i in "${!langs[@]}"; do
     *)
       if [ -n "${run_ids[$i]}" ]; then
         unseen+=("${langs[$i]} (run ${run_ids[$i]} still ${statuses[$i]})")
-      else
+      elif [ "${queried[$i]}" = "yes" ]; then
         unseen+=("${langs[$i]} (no push-triggered run of release-${langs[$i]}.yml for $tag)")
+      else
+        unseen+=("${langs[$i]} (could not query release-${langs[$i]}.yml: every gh run list call failed)")
       fi
       ;;
   esac
@@ -182,5 +187,6 @@ echo "This orchestrator only sees runs the tag push triggered. A 'gh workflow ru
 echo "dispatch is a dry-run rehearsal on a separate run that it will never detect. A re-run builds the"
 echo "tagged commit, so a fix that changes any checked-in file (workflow, source, lockfile) needs the"
 echo "next patch release instead. A language with no push-triggered run at all had its workflow missing"
-echo "or disabled at the tag: that also means the next patch."
+echo "or disabled at the tag: that also means the next patch. A language that could not be queried is"
+echo "unknown, not missing: re-run this orchestrator once gh can reach the API."
 exit 1

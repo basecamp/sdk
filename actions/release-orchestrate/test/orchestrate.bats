@@ -213,6 +213,16 @@ sleeps() { grep -c '^sleep 10$' "$GH_LOG" || true; }
   [[ "$output" != *"gh run rerun  --failed"* ]]
 }
 
+@test "a language that could never be queried is reported as unknown, not missing" {
+  export GH_LIST_FAIL_AFTER=0
+  use_fixture release-go.yml success
+  orchestrate
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"go (could not query release-go.yml: every gh run list call failed)"* ]]
+  [[ "$output" != *"no push-triggered run"* ]]
+  [[ "$output" == *"unknown, not missing"* ]]
+}
+
 @test "diagnostics on stderr from a successful gh call do not break parsing" {
   export GH_STDERR_NOISE=1
   use_fixture release-go.yml success
