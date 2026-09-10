@@ -87,8 +87,9 @@ OIDC exchange; the first real tag after step 5 is the first end-to-end test.
 Create the `release-crates` environment in the repository first, restricted to `v*`
 tag refs with required reviewers; the publish job runs nowhere else.
 
-`make bump` writes the `[package] version` in `rust/sdk/Cargo.toml` and refreshes
-`rust/Cargo.lock` and `conformance/runner/rust/Cargo.lock`; `make release` reads the
+`make bump` writes the `[package] version` in `rust/sdk/Cargo.toml`, moves the crates.io
+requirement the crate README advertises to the new minor, and refreshes `rust/Cargo.lock`
+and `conformance/runner/rust/Cargo.lock`; `make release` reads the
 version back through `cargo metadata` and runs `cargo publish --dry-run --locked` before
 it tags. The workflow publishes only when crates.io answers 404 for that version and
 fails closed on any other answer.

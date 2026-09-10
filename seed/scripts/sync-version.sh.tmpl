@@ -85,6 +85,18 @@ if [ -f rust/sdk/Cargo.toml ]; then
     exit 1
   fi
   echo "  Updated rust/sdk/Cargo.toml"
+  # The crate README advertises the crates.io requirement by minor — cargo reads
+  # "0.1" as ">=0.1.0, <0.2.0" — so a bump across a minor has to move it, or the
+  # README keeps installing the previous line. Anchored to the whole line and read
+  # back like the Cargo.toml edit: a README that lost the line is one the bump
+  # cannot keep true.
+  RUST_MINOR="${VERSION%.*}"
+  perl -pi -e "s/^({{.AppName}}-sdk = \")[0-9.]*\"\$/\${1}$RUST_MINOR\"/" rust/sdk/README.md
+  if ! grep -Fxq "{{.AppName}}-sdk = \"$RUST_MINOR\"" rust/sdk/README.md; then
+    echo "ERROR: rust/sdk/README.md does not carry the '{{.AppName}}-sdk = \"$RUST_MINOR\"' requirement line after the edit" >&2
+    exit 1
+  fi
+  echo "  Updated rust/sdk/README.md"
   # Both lockfiles record the SDK's version (the workspace's own members in
   # rust/Cargo.lock; the path dep on ../../../rust/sdk in the conformance
   # runner's). Both are tracked and every consumer passes --locked, so a stale
