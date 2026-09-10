@@ -107,6 +107,15 @@ sleeps() { grep -c '^sleep 10$' "$GH_LOG" || true; }
   [[ "$output" != *"gh workflow run release-typescript.yml"* ]]
 }
 
+@test "a cancelled run gets a full rerun, since --failed has no failed jobs to pick" {
+  use_fixture release-go.yml cancelled
+  orchestrate
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed: go (cancelled, run 304)"* ]]
+  [[ "$output" == *"  gh run rerun 304"$'\n'* ]]
+  [[ "$output" != *"gh run rerun 304 --failed"* ]]
+}
+
 @test "a failure is final: no further polling once every language has completed" {
   use_fixture release-go.yml failure
   orchestrate
@@ -210,6 +219,14 @@ sleeps() { grep -c '^sleep 10$' "$GH_LOG" || true; }
   orchestrate
   [ "$status" -eq 0 ]
   logged '--workflow=release-rust.yml'
+}
+
+@test "trims only the edges: internal whitespace is still invalid" {
+  export LANGUAGES="go, type script"
+  orchestrate
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"::error::Invalid language ' type script'"* ]]
+  [ ! -s "$GH_LOG" ]
 }
 
 @test "rejects an empty languages list without calling gh" {

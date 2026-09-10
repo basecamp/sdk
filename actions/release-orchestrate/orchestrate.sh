@@ -35,7 +35,8 @@ done
 langs=()
 IFS=',' read -ra raw_langs <<< "${LANGUAGES:-}"
 for raw in "${raw_langs[@]}"; do
-  lang="${raw//[[:space:]]/}"
+  lang="${raw#"${raw%%[![:space:]]*}"}"
+  lang="${lang%"${lang##*[![:space:]]}"}"
   [ -n "$lang" ] || continue
   if [[ ! "$lang" =~ ^[a-z0-9-]+$ ]]; then
     echo "::error::Invalid language '$raw' in languages input (expected e.g. go,typescript,rust)"
@@ -128,7 +129,12 @@ for i in "${!langs[@]}"; do
     success) ;;
     failed)
       failed+=("${langs[$i]} (${conclusions[$i]}, run ${run_ids[$i]})")
-      rerun_cmds+=("gh run rerun ${run_ids[$i]} --failed")
+      # --failed re-runs failed jobs only; a cancelled or skipped run has none.
+      if [ "${conclusions[$i]}" = "failure" ]; then
+        rerun_cmds+=("gh run rerun ${run_ids[$i]} --failed")
+      else
+        rerun_cmds+=("gh run rerun ${run_ids[$i]}")
+      fi
       ;;
     *)
       if [ -n "${run_ids[$i]}" ]; then
@@ -168,8 +174,10 @@ echo "Recovery: fix the cause, then re-run the failed run in place so it keeps i
 for cmd in "${rerun_cmds[@]}"; do
   echo "  $cmd"
 done
-echo "  gh run rerun ${GITHUB_RUN_ID:-<this-run-id>}   # then re-run this orchestrator"
+echo "  gh run rerun ${GITHUB_RUN_ID:-<this-run-id>}   # once those succeed, re-run this orchestrator"
 echo "This orchestrator only sees runs the tag push triggered. A 'gh workflow run release-<lang>.yml'"
-echo "dispatch is a dry-run rehearsal on a separate run that it will never detect. If the fix needs a"
-echo "workflow change, a re-run still executes the tagged workflow file: release the next patch instead."
+echo "dispatch is a dry-run rehearsal on a separate run that it will never detect. A re-run builds the"
+echo "tagged commit, so a fix that changes any checked-in file (workflow, source, lockfile) needs the"
+echo "next patch release instead. A language with no push-triggered run at all had its workflow missing"
+echo "or disabled at the tag: that also means the next patch."
 exit 1
