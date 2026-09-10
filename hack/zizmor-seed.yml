@@ -11,7 +11,11 @@ rules:
       policies:
         "actions/*": ref-pin
         "github/*": ref-pin
-        "basecamp/sdk/actions/*": ref-pin    # the seed's own composite actions, tracked at @main by convention
+        # the seed's own composite actions, tracked at @main by convention
+        basecamp/sdk/actions/conformance-run: ref-pin
+        basecamp/sdk/actions/release-orchestrate: ref-pin
+        basecamp/sdk/actions/rubric-check: ref-pin
+        basecamp/sdk/actions/smithy-verify: ref-pin
         ruby/setup-ruby: ref-pin
         gradle/actions/setup-gradle: ref-pin
         rubygems/configure-rubygems-credentials: ref-pin
