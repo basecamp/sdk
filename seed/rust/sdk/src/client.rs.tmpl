@@ -506,9 +506,6 @@ impl AccountClient {
                         // met the expiry waits on the one coalesced refresh, and a body
                         // alive through that wait holds its connection for the duration.
                         let cause = self.finish_failure(operation, response, deadline).await;
-                        if cause.is_deadline_exceeded() {
-                            return Err(cause);
-                        }
                         crate::hooks::guarded(|| {
                             hooks.on_request_end(
                                 &info,
@@ -520,6 +517,9 @@ impl AccountClient {
                                 },
                             );
                         });
+                        if cause.is_deadline_exceeded() {
+                            return Err(cause);
+                        }
                         refreshed = true;
                         let renewed =
                             match deadline.bound(self.shared.auth.refresh(generation)).await {
@@ -1370,6 +1370,68 @@ mod tests {
         assert_eq!(*provider.seen.lock().unwrap(), vec![0]);
         assert_eq!(http.live_bodies.load(Ordering::SeqCst), 0);
         assert_eq!(http.sent.lock().unwrap().len(), 2);
+    }
+
+    /// A transport whose one answer is a 401 with a body that never arrives.
+    struct StalledUnauthorized;
+
+    struct Stalled;
+
+    impl futures_util::Stream for Stalled {
+        type Item = Result<Bytes, Error>;
+
+        fn poll_next(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    #[async_trait]
+    impl HttpClient for StalledUnauthorized {
+        async fn send(&self, _: Request<Bytes>) -> Result<HttpResponse<Body>, Error> {
+            let mut response = HttpResponse::new(Body::from_stream(Stalled, None));
+            *response.status_mut() = StatusCode::UNAUTHORIZED;
+            Ok(response)
+        }
+    }
+
+    /// Counts the request starts and ends the hooks are told about.
+    #[derive(Default)]
+    struct CountingRequests {
+        starts: AtomicUsize,
+        ends: AtomicUsize,
+    }
+
+    impl Hooks for CountingRequests {
+        fn on_request_start(&self, _: &RequestInfo) {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn on_request_end(&self, _: &RequestInfo, _: &RequestResult<'_>) {
+            self.ends.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_401_body_that_outlives_the_deadline_still_ends_its_request() {
+        let counting = Arc::new(CountingRequests::default());
+        let account = Client::builder(Config::default())
+            .token_provider(Declining)
+            .http_client(Arc::new(StalledUnauthorized))
+            .hooks(counting.clone())
+            .operation_deadline(Duration::from_millis(100))
+            .build()
+            .unwrap()
+            .for_account("999");
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert!(error.is_deadline_exceeded(), "{error:?}");
+        assert_eq!(counting.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(counting.ends.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
