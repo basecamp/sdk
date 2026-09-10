@@ -95,6 +95,25 @@ updates:
       - "dependencies"
       - "swift"
 
+  # Rust SDK dependencies (workspace: sdk + generator)
+  - package-ecosystem: cargo
+    directory: "/rust"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 10
+    groups:
+      cargo-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(rust):"
+    labels:
+      - "dependencies"
+      - "rust"
+
   # GitHub Actions dependencies
   - package-ecosystem: github-actions
     directory: "/"
@@ -172,4 +191,24 @@ updates:
     labels:
       - "dependencies"
       - "ruby"
+      - "conformance"
+
+  # Conformance runner — Rust
+  - package-ecosystem: cargo
+    directory: "/conformance/runner/rust"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+    groups:
+      conformance-cargo-dependencies:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "deps(conformance-rust):"
+    labels:
+      - "dependencies"
+      - "rust"
       - "conformance"

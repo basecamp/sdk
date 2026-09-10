@@ -87,6 +87,22 @@ If the SDK has a Go submodule at `go/`, `release-go.yml` MUST auto-derive a `go/
 - The `git tag` command MUST NOT contain `--force` or `-f`
 - Fix requires a new patch release (`x.y.(z+1)`)
 
+### Rust Crate Policy
+
+If the SDK has a Rust crate at `rust/`, `release-rust.yml` publishes it to crates.io with
+Trusted Publishing (OIDC on the `release-crates` environment), never with a stored
+registry token. Requirements:
+
+- No `rust/v{VERSION}` sub-tag: crates.io ignores git tags, and the packaged
+  `.cargo_vcs_info.json` (asserted against `GITHUB_SHA` before publishing) is the
+  provenance anchor
+- The already-published check publishes only on a 404 for that version and fails closed
+  on any other answer; a re-run of a partial release is therefore a no-op for a version
+  that already landed
+- The first version of a crate is published by hand, once, before the first tag
+  (Trusted Publishing is configured on an existing crate); the seed's CONTRIBUTING.md
+  carries the procedure
+
 ## audit-check Target
 
 The `audit-check` target validates `rubric-audit.json`:

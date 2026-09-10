@@ -80,16 +80,25 @@ url-routes-check:
 sync-api-version:
 	@echo "==> Syncing API version..."
 	./scripts/sync-api-version.sh
+	@# Rust: the generator emits this constant from the same openapi.json, so the rewrite
+	@# is idempotent after rs-generate-services; it exists so a spec bump that skips
+	@# regeneration still leaves the constant true.
+	@API_VER=$$(jq -r '.info.version' openapi.json); \
+	[ ! -f rust/sdk/src/generated/mod.rs ] || \
+		perl -pi -e "s/^pub const API_VERSION: &str = \".*\";/pub const API_VERSION: &str = \"$$API_VER\";/" rust/sdk/src/generated/mod.rs
 
 sync-api-version-check:
 	@echo "==> Checking API version sync..."
+	@# A language the profile omits has no constant to check; a language it carries
+	@# must match. Each line skips an absent file and fails a present one that differs.
 	@API_VER=$$(jq -r '.info.version' openapi.json); \
 	ok=true; \
-	grep -q "APIVersion = \"$$API_VER\"" go/pkg/{{.AppLower}}/version.go || ok=false; \
-	grep -q "API_VERSION = \"$$API_VER\"" typescript/src/client.ts || ok=false; \
-	grep -q "API_VERSION = \"$$API_VER\"" ruby/lib/{{.AppLower}}/version.rb || ok=false; \
-	grep -q "API_VERSION = \"$$API_VER\"" kotlin/sdk/src/commonMain/kotlin/com/basecamp/{{.AppLower}}/{{.AppTitle}}Config.kt || ok=false; \
-	grep -q "apiVersion = \"$$API_VER\"" swift/Sources/{{.AppTitle}}/{{.AppTitle}}Config.swift || ok=false; \
+	f=go/pkg/{{.AppLower}}/version.go; [ ! -f $$f ] || grep -q "APIVersion = \"$$API_VER\"" $$f || ok=false; \
+	f=typescript/src/client.ts; [ ! -f $$f ] || grep -q "API_VERSION = ['\"]$$API_VER['\"]" $$f || ok=false; \
+	f=ruby/lib/{{.AppLower}}/version.rb; [ ! -f $$f ] || grep -q "API_VERSION = \"$$API_VER\"" $$f || ok=false; \
+	f=kotlin/sdk/src/commonMain/kotlin/com/basecamp/{{.AppLower}}/{{.AppTitle}}Config.kt; [ ! -f $$f ] || grep -q "API_VERSION = \"$$API_VER\"" $$f || ok=false; \
+	f=swift/Sources/{{.AppTitle}}/{{.AppTitle}}Config.swift; [ ! -f $$f ] || grep -q "apiVersion = \"$$API_VER\"" $$f || ok=false; \
+	f=rust/sdk/src/generated/mod.rs; [ ! -f $$f ] || grep -q "pub const API_VERSION: &str = \"$$API_VER\";" $$f || ok=false; \
 	if [ "$$ok" = false ]; then echo "ERROR: API_VERSION constants out of sync. Run 'make sync-api-version'"; exit 1; fi
 	@echo "  API version is in sync"
 
@@ -296,10 +305,97 @@ kt-clean:
 	cd kotlin && ./gradlew clean
 
 #---
+# Rust SDK
+#---
+
+# rust/ is a Cargo workspace (the sdk crate + the generator); the conformance runner
+# is its own workspace at conformance/runner/rust with a path dep on the crate.
+# Every cargo invocation passes --locked: both Cargo.lock files are tracked, so
+# a stale one fails the build here rather than being rewritten mid-check.
+RS_CRATE := {{.AppName}}-sdk
+
+.PHONY: rs-build rs-test rs-fmt rs-lint rs-doc rs-deny rs-generate-services rs-check-drift rs-publish-check rs-check rs-clean
+
+rs-build:
+	@echo "==> Building Rust SDK..."
+	cd rust && cargo build --workspace --locked
+
+# Feature matrix (default, --no-default-features, --all-features) plus the
+# compiled examples: a README snippet that stops compiling is a docs bug the
+# doctests alone would miss when the fence is `no_run`. Without default
+# features the crate ships no transport, so that lane builds the library and
+# runs its unit tests only.
+rs-test:
+	@echo "==> Running Rust tests..."
+	cd rust && cargo test --workspace --all-features --locked
+	cd rust && cargo build -p $(RS_CRATE) --no-default-features --locked
+	cd rust && cargo test -p $(RS_CRATE) --no-default-features --lib --locked
+	cd rust && cargo test -p $(RS_CRATE) --locked
+	cd rust && cargo build -p $(RS_CRATE) --examples --locked
+
+rs-fmt:
+	cd rust && cargo fmt --all
+
+rs-lint:
+	@echo "==> Linting Rust SDK..."
+	cd rust && cargo fmt --all --check
+	cd rust && cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+# Broken intra-doc links and missing docs fail the build; -D warnings is
+# applied here rather than in [lints] so a local `cargo build` still succeeds
+# with a warning the developer can see.
+rs-doc:
+	@echo "==> Building Rust docs..."
+	cd rust && RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features -p $(RS_CRATE) --locked
+
+# One advisory/licence/bans gate over BOTH Cargo workspaces, from the checked-in
+# rust/deny.toml. cargo-audit is deliberately not run beside it — same RustSec
+# database, one tool.
+rs-deny:
+	@command -v cargo-deny >/dev/null || (echo "Install cargo-deny: cargo install cargo-deny --locked (or brew install cargo-deny)" && exit 1)
+	@echo "==> cargo deny (rust + conformance/runner/rust)..."
+	cargo deny --manifest-path rust/Cargo.toml --config rust/deny.toml --locked check
+	@# The runner is initialized in the conformance phase, after the crate; until then
+	@# there is nothing to audit there and rs-check must still pass.
+	@if [ -f conformance/runner/rust/Cargo.toml ]; then \
+		cargo deny --manifest-path conformance/runner/rust/Cargo.toml --config rust/deny.toml --locked check; \
+	else \
+		echo "  conformance/runner/rust not initialized yet; skipping its audit"; \
+	fi
+
+# Regenerate rust/sdk/src/generated from openapi.json + behavior-model.json.
+# The generator is a workspace member (rust/generator, ported per repo — see
+# CONTRIBUTING.md); it resolves its inputs from the repository root and writes
+# rust/sdk/src/generated unless `--output` says otherwise.
+rs-generate-services:
+	@echo "==> Generating Rust SDK from OpenAPI..."
+	cd rust && cargo run -q --locked -p $(RS_CRATE)-generator
+
+# Non-mutating regenerate + diff
+rs-check-drift:
+	@echo "==> Checking Rust service drift..."
+	@./scripts/check-rust-service-drift.sh
+
+# Metadata, `include`, README path, no path deps: everything crates.io would
+# reject that lockfile freshness says nothing about. Run before the tag exists.
+# --allow-dirty so the develop loop passes on an uncommitted edit; the release
+# workflow packages from a clean checkout and asserts it.
+rs-publish-check:
+	@echo "==> cargo publish --dry-run..."
+	cd rust && cargo publish -p $(RS_CRATE) --dry-run --locked --allow-dirty
+
+# The {lang}-check contract: fmt-check + clippy + test + doc + deny (+ drift + publish dry-run)
+rs-check: rs-lint rs-test rs-doc rs-deny rs-check-drift rs-publish-check
+	@echo "==> Rust SDK checks passed"
+
+rs-clean:
+	rm -rf rust/target conformance/runner/rust/target
+
+#---
 # Conformance
 #---
 
-.PHONY: conformance-build conformance-go conformance-kotlin conformance-typescript conformance-ruby conformance-swift conformance
+.PHONY: conformance-build conformance-go conformance-kotlin conformance-typescript conformance-ruby conformance-swift conformance-rust conformance-runner-tests-rust conformance
 
 conformance-build:
 	@echo "==> Building conformance runners..."
@@ -327,7 +423,16 @@ conformance-swift:
 	@echo "==> Running Swift conformance..."
 	cd conformance/runner/swift && swift run ConformanceRunner ../../tests/
 
-conformance: conformance-go conformance-typescript conformance-ruby conformance-kotlin
+# The Rust runner is its own Cargo workspace with a path dep on rust/sdk.
+conformance-rust:
+	@echo "==> Running Rust conformance..."
+	cd conformance/runner/rust && cargo run --locked -q
+
+conformance-runner-tests-rust:
+	@echo "==> Running Rust conformance runner unit tests..."
+	cd conformance/runner/rust && cargo test --locked
+
+conformance: conformance-go conformance-typescript conformance-ruby conformance-kotlin conformance-rust
 	@echo "==> All conformance tests passed"
 
 #---
@@ -336,7 +441,7 @@ conformance: conformance-go conformance-typescript conformance-ruby conformance-
 
 .PHONY: generate-services
 
-generate-services: go-generate-services ts-generate-services rb-generate-services swift-generate kt-generate-services
+generate-services: go-generate-services ts-generate-services rb-generate-services swift-generate kt-generate-services rs-generate-services
 	@echo "==> All services regenerated"
 
 #---
@@ -350,7 +455,7 @@ ifndef VERSION
 	$(error VERSION is required. Usage: make bump VERSION=x.y.z)
 endif
 	@echo "==> Bumping version to $(VERSION)..."
-	./scripts/bump-version.sh $(VERSION)
+	./scripts/sync-version.sh $(VERSION)
 	@echo "  Version bumped to $(VERSION)"
 
 release:
@@ -372,6 +477,16 @@ endif
 		{ echo "ERROR: Kotlin Gradle project version does not match."; exit 1; }
 	@grep -qF 'sdkVersion = "$(VERSION)"' swift/Sources/{{.AppTitle}}/{{.AppTitle}}Config.swift || \
 		{ echo "ERROR: Swift version does not match."; exit 1; }
+	@# Rust: read back through cargo's own TOML parser, not a regex over the file
+	@test "$$(cd rust && cargo metadata --no-deps --locked --format-version 1 | jq -r '.packages[] | select(.name == "$(RS_CRATE)") | .version')" = "$(VERSION)" || \
+		{ echo "ERROR: Rust crate version does not match. Run 'make bump VERSION=$(VERSION)' first."; exit 1; }
+	@# Both Rust lockfiles record the crate version; --locked fails on a stale one.
+	@(cd rust && cargo metadata --locked --format-version 1 > /dev/null) || \
+		{ echo "ERROR: rust/Cargo.lock is stale. Run 'make bump VERSION=$(VERSION)' first."; exit 1; }
+	@(cd conformance/runner/rust && cargo metadata --locked --format-version 1 > /dev/null) || \
+		{ echo "ERROR: conformance/runner/rust/Cargo.lock is stale. Run 'make bump VERSION=$(VERSION)' first."; exit 1; }
+	@# Lock freshness says nothing about `include`, the README path or metadata.
+	@$(MAKE) rs-publish-check
 	@git diff --quiet && git diff --cached --quiet && \
 		test -z "$$(git status --porcelain)" || \
 		{ echo "ERROR: Working tree has uncommitted or untracked changes."; git status --short; exit 1; }
@@ -406,13 +521,13 @@ audit-check:
 check-mvp: smithy-check behavior-model-check url-routes-check sync-api-version-check go-check
 	@echo "==> MVP checks passed"
 
-check-full: check-mvp provenance-check audit-check ts-check rb-check swift-check kt-check conformance
+check-full: check-mvp provenance-check audit-check ts-check rb-check swift-check kt-check rs-check conformance
 	@echo "==> Full checks passed"
 
-check: smithy-check behavior-model-check url-routes-check sync-api-version-check provenance-check audit-check go-check ts-check rb-check swift-check kt-check conformance
+check: smithy-check behavior-model-check url-routes-check sync-api-version-check provenance-check audit-check go-check ts-check rb-check swift-check kt-check rs-check conformance
 	@echo "==> All checks passed"
 
-clean: smithy-clean go-clean ts-clean rb-clean swift-clean kt-clean
+clean: smithy-clean go-clean ts-clean rb-clean swift-clean kt-clean rs-clean
 	@echo "==> Cleaned"
 
 help:
@@ -474,6 +589,18 @@ help:
 	@echo "  kt-check-drift       Check service drift vs OpenAPI spec"
 	@echo "  kt-clean             Remove Kotlin build artifacts"
 	@echo ""
+	@echo "Rust SDK:"
+	@echo "  rs-generate-services Regenerate rust/sdk/src/generated from OpenAPI + behavior model"
+	@echo "  rs-build             Build Rust SDK workspace"
+	@echo "  rs-test              Run Rust tests (feature matrix + examples)"
+	@echo "  rs-lint              rustfmt --check + clippy -D warnings"
+	@echo "  rs-doc               Build crate docs with -D warnings"
+	@echo "  rs-deny              cargo deny (advisories, licenses, bans, sources) over both workspaces"
+	@echo "  rs-check-drift       Regenerate into a tmpdir and diff against rust/sdk/src/generated"
+	@echo "  rs-publish-check     cargo publish --dry-run"
+	@echo "  rs-check             Run all Rust checks"
+	@echo "  rs-clean             Remove Rust build artifacts"
+	@echo ""
 	@echo "Conformance:"
 	@echo "  conformance          Run all conformance tests"
 	@echo "  conformance-go       Run Go conformance tests"
@@ -481,6 +608,7 @@ help:
 	@echo "  conformance-ruby     Run Ruby conformance tests"
 	@echo "  conformance-swift    Run Swift conformance tests"
 	@echo "  conformance-kotlin   Run Kotlin conformance tests"
+	@echo "  conformance-rust     Run Rust conformance tests"
 	@echo "  conformance-build    Build conformance test runners"
 	@echo ""
 	@echo "Provenance:"

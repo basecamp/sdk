@@ -14,7 +14,8 @@ Decide which languages to include based on the target audience:
 
 | Platform target | Languages | Profile |
 |-----------------|-----------|---------|
-| Web + server + mobile | Go, TypeScript, Ruby, Swift, Kotlin | full-sdk |
+| Web + server + mobile | Go, TypeScript, Ruby, Swift, Kotlin, Rust | full-sdk |
+| Web + server + native tooling | Go, TypeScript, Ruby, Rust | full-sdk |
 | Web + server | Go, TypeScript, Ruby | full-sdk |
 | Single platform (e.g., CLI tool) | One of the above | single-language |
 
@@ -118,6 +119,22 @@ Initialize each language in parallel -- they are independent of each other.
 
 **Checkpoint:** `./gradlew build` passes.
 
+#### Rust
+1. Copy `seed/rust/` into `rust/`. Unlike the other scaffolds this is a complete,
+   compilable crate (`rust/sdk/`) with an empty `src/generated/` tree; the runtime —
+   client, auth, errors, hooks, retry, pagination, security — is already there.
+2. Port `rust/generator` from basecamp/basecamp-sdk, add `"generator"` to `members` in
+   `rust/Cargo.toml`, and adapt its `names.toml`.
+3. `cd rust && cargo generate-lockfile` and commit `Cargo.lock`. Every `rs-*` target
+   passes `--locked`, so the lockfile must already know the generator: one generated
+   before the workspace gained that member fails the next step with "the lock file
+   needs to be updated but --locked was passed".
+4. `make rs-generate-services`
+
+**Checkpoint:** `make rs-check` passes (fmt + clippy + tests + docs + deny + drift +
+publish dry-run). Before the generator exists, `cd rust && cargo test && cargo publish
+--dry-run` already pass on the scaffold as shipped.
+
 ### Phase 5: Conformance & CI
 
 1. Copy `conformance/` from sdk/common (tests + schema)
@@ -146,6 +163,7 @@ Run these per-language to confirm the SDK is functional end-to-end:
 | Ruby | `cd ruby && bundle exec rake` |
 | Swift | `cd swift && swift build && swift test` |
 | Kotlin | `cd kotlin && ./gradlew build` |
+| Rust | `cd rust && cargo build --workspace --locked && cargo test --workspace --locked` |
 
 Then cross-language:
 
@@ -159,6 +177,9 @@ Finally, run the `rubric-audit` skill to establish a baseline score and identify
 ## Post-Bootstrap Setup
 
 - Set up GitHub repository secrets for publishing
+- Rust publishes with no stored secret: create the `release-crates` environment
+  (restricted to `v*` tags, required reviewers), then do the one-time manual first
+  publish and Trusted Publishing setup in CONTRIBUTING.md before the first `make release`
 - Enable branch protection on main
 - Configure Dependabot via `.github/dependabot.yml`
 - Run `rubric-audit` skill to establish baseline score

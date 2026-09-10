@@ -1,0 +1,42 @@
+//! The public-API guarantees a consumer can rely on, checked from outside the crate.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::sync::Arc;
+
+use {{.AppName}}_sdk::{AccountClient, Client, Config, Error, ErrorCode, Hooks, HttpClient};
+
+fn assert_send_sync<T: Send + Sync>() {}
+
+#[test]
+fn clients_and_errors_cross_threads() {
+    assert_send_sync::<Client>();
+    assert_send_sync::<AccountClient>();
+    assert_send_sync::<Error>();
+    assert_send_sync::<Arc<dyn HttpClient>>();
+    assert_send_sync::<Arc<dyn Hooks>>();
+}
+
+#[test]
+fn a_client_needs_credentials() {
+    let error = Client::builder(Config::default()).build().unwrap_err();
+    assert_eq!(error.code(), ErrorCode::Usage);
+}
+
+#[test]
+fn a_client_scopes_itself_to_an_account() {
+    let account = Client::builder(Config::default())
+        .access_token("secret")
+        .build()
+        .unwrap()
+        .for_account("999");
+    assert_eq!(account.account_id(), "999");
+    assert_eq!(account.base_url().as_str(), "https://3.basecampapi.com/");
+}
+
+#[test]
+fn error_codes_spell_and_exit_the_same_in_every_sdk() {
+    assert_eq!(ErrorCode::AuthRequired.as_str(), "auth_required");
+    assert_eq!(ErrorCode::AuthRequired.exit_code(), 3);
+    assert_eq!(Error::usage("x").exit_code(), 1);
+}

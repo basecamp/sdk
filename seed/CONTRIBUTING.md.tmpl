@@ -6,6 +6,7 @@
 - Go 1.22+
 - Node.js 20+
 - Ruby 3.2+
+- Rust 1.88+ (MSRV; `rust/rust-toolchain.toml` pins the dev toolchain) and [cargo-deny](https://embarkstudios.github.io/cargo-deny/)
 - Make
 
 ## Development Workflow
@@ -23,20 +24,78 @@
 2. Run `make smithy-build` to regenerate OpenAPI
 3. Regenerate the service layer. Name the targets for the languages this SDK actually
    ships: `make go-generate-services`, `make ts-generate-services`,
-   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate-services`.
-   The aggregate `make generate-services` runs all five unconditionally, so it only
-   works on a full five-language repo -- on a narrower profile it fails on the first
+   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate-services`,
+   `make rs-generate-services`.
+   The aggregate `make generate-services` runs all six unconditionally, so it only
+   works on a full six-language repo -- on a narrower profile it fails on the first
    language that was never initialized.
 4. Add unit tests
 5. Add conformance tests if the operation has behavioral requirements
 6. Run `make check`
 
-`make check` has the same five-language assumption as the aggregate above: it depends on
-`go-check ts-check rb-check swift-check kt-check conformance` unconditionally. On a
+`make check` has the same six-language assumption as the aggregate above: it depends on
+`go-check ts-check rb-check swift-check kt-check rs-check conformance` unconditionally. On a
 narrower profile, trim those dependencies when you instantiate the Makefile, or the gate
 fails in a language the repo never initialized.
+
+## The Rust generator
+
+`rust/` is a Cargo workspace: `sdk/` is the published crate, and `generator/` is the
+program `make rs-generate-services` runs to write `sdk/src/generated/` from `openapi.json`
+and `behavior-model.json`. The seed ships the crate with an empty `generated/` tree and no
+generator: port `rust/generator` from basecamp/basecamp-sdk (its `names.toml` carries the
+per-app naming overrides), add it to `members` in `rust/Cargo.toml`, and
+`scripts/check-rust-service-drift.sh` becomes the freshness gate.
 
 ## Release Process
 
 Releases are managed via `make release VERSION=x.y.z`. See MAKEFILE-CONVENTION.md
 in basecamp/sdk for the target vocabulary and release architecture.
+
+### Releasing the Rust crate for the first time
+
+`release-rust.yml` publishes to crates.io through Trusted Publishing (OIDC via
+`rust-lang/crates-io-auth-action`, on the `release-crates` environment), and
+Trusted Publishing can only be configured on a crate that already exists. The
+first version is therefore pushed by hand, once, by a maintainer with crates.io
+access; every later release is `make release` like the other SDKs. Until step 5
+below is done, a `v*` tag FAILS `release-rust.yml`'s publish job -- and with it
+the GitHub Release, which would otherwise publish notes advertising a crate
+version nobody can install. So the bootstrap happens before the first tag, and
+steps 1-7 run back-to-back on one SHA. A `workflow_dispatch` run rehearses
+packaging from any ref without touching the registry, and never exercises the
+OIDC exchange; the first real tag after step 5 is the first end-to-end test.
+
+1. On `main`, with a clean tree and `make check` green.
+2. Mint a crates.io API token scoped to `publish-new` and `change-owners`, with a
+   one-day expiry.
+3. Publish from the workspace, reproducibly, with the token from step 2 in the
+   environment (never `cargo login`: that writes it to `~/.cargo/credentials.toml`):
+   ```bash
+   export CARGO_REGISTRY_TOKEN=<token from step 2>
+   (cd rust && SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) cargo publish -p {{.AppName}}-sdk --locked)
+   ```
+4. Hand ownership to the team, still under that token:
+   `cargo owner --add github:{{.GithubOrg}}:cli {{.AppName}}-sdk`.
+5. On the crate's settings page, configure Trusted Publishing: owner `{{.GithubOrg}}`,
+   repository `{{.GithubRepo}}`, workflow `release-rust.yml`, environment
+   `release-crates`.
+6. Revoke the token from step 2 and `unset CARGO_REGISTRY_TOKEN`.
+7. `make release VERSION=...` from the same SHA, so the tag and the published
+   crate agree.
+
+Create the `release-crates` environment in the repository first, restricted to `v*`
+tag refs with required reviewers; the publish job runs nowhere else.
+
+`make bump` writes the `[package] version` in `rust/sdk/Cargo.toml`, moves the crates.io
+requirement the crate README advertises to the new minor, and refreshes `rust/Cargo.lock`
+and `conformance/runner/rust/Cargo.lock`; `make release` reads the
+version back through `cargo metadata` and runs `cargo publish --dry-run --locked` before
+it tags. The workflow publishes only when crates.io answers 404 for that version and
+fails closed on any other answer.
+
+**Recovery after a partial publish.** Re-run the failed jobs with `gh run rerun
+<run-id> --failed`; the already-published check is idempotent, so a version that
+did land is skipped rather than re-pushed. Never delete the tag -- crates.io
+versions are permanent, and the tag is the only thing that ties the published
+bytes back to a commit.

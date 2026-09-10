@@ -234,3 +234,85 @@ jobs:
           walk(deps)
           " < deps.json
           rm -f deps.json
+
+  trivy-rust:
+    name: Trivy (Rust SDK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Trivy reads Cargo.lock; the crate workspace and the conformance runner's
+      # are two lockfiles in two directories, so each is scanned on its own.
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: './rust'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-rust-results.sarif'
+
+      - name: Run Trivy vulnerability scanner (conformance runner)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_SKIP_DB_UPDATE: true
+        with:
+          scan-type: 'fs'
+          scan-ref: './conformance/runner/rust'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-rust-runner-results.sarif'
+          skip-setup-trivy: true
+          cache: 'false'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        if: always()
+        continue-on-error: true  # Requires GitHub Advanced Security
+        with:
+          sarif_file: 'trivy-rust-results.sarif'
+          category: 'trivy-rust'
+
+      - name: Upload runner scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        if: always()
+        continue-on-error: true  # Requires GitHub Advanced Security
+        with:
+          sarif_file: 'trivy-rust-runner-results.sarif'
+          category: 'trivy-rust-runner'
+
+  # The Rust advisory gate proper: RustSec advisories, licenses, bans and
+  # sources for BOTH Cargo workspaces, from the checked-in rust/deny.toml.
+  # release-rust.yml runs the same check before every release; this is the
+  # weekly re-scan against a moved advisory database. cargo-audit is
+  # deliberately not run beside it — same RustSec database, one tool.
+  cargo-deny:
+    name: cargo deny (Rust SDK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: '1.98.1'
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: cargo deny check (both workspaces)
+        run: |
+          cargo deny --manifest-path rust/Cargo.toml --config rust/deny.toml --locked check
+          cargo deny --manifest-path conformance/runner/rust/Cargo.toml --config rust/deny.toml --locked check

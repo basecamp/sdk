@@ -1,6 +1,6 @@
 # {{.AppTitle}} SDK
 
-Official SDK for the {{.AppTitle}} API. Multi-language support for Go, TypeScript, Ruby, Swift, and Kotlin.
+Official SDK for the {{.AppTitle}} API. Multi-language support for Go, TypeScript, Ruby, Swift, Kotlin, and Rust.
 
 ## Quick Start
 
@@ -31,11 +31,20 @@ client = {{.AppTitle}}::Client.new(token: 'your-token')
 projects = client.projects.list
 ```
 
+### Rust
+
+```rust,no_run
+use {{.AppName}}_sdk::{Client, Config};
+
+let client = Client::builder(Config::default()).access_token("your-token").build()?;
+let projects = client.for_account("your-account-id").projects().list(&Default::default()).await?;
+```
+
 ## Development
 
 ```bash
 make check          # Run all checks
-make go-test        # Tests for one language (go, ts, rb, swift, kt)
+make go-test        # Tests for one language (go, ts, rb, swift, kt, rs)
 make conformance    # Run cross-language conformance tests
 ```
 

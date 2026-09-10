@@ -3,6 +3,12 @@
 # Reads VERSION from the repo root and updates all language-specific version
 # constants atomically. Run via: make bump VERSION=x.y.z
 #
+# Every edit below is anchored to the SDK version constant and nothing else on
+# the line, because each of these files also carries the API version next to it
+# (`APIVersion`, `API_VERSION`, `apiVersion`) and an unanchored `Version = ".*"`
+# rewrites both. `make release` and `make sync-api-version-check` grep the same
+# files afterwards; a constant this script misses fails there, not here.
+#
 set -euo pipefail
 
 VERSION="${1:?Usage: sync-version.sh <version>}"
@@ -10,10 +16,12 @@ VERSION="${1:?Usage: sync-version.sh <version>}"
 echo "Syncing version to $VERSION across all languages..."
 
 # Go
-if [ -f go/pkg/sdk/version.go ]; then
-  perl -pi -e "s/Version = \".*\"/Version = \"$VERSION\"/" go/pkg/sdk/version.go
-  echo "  Updated go/pkg/sdk/version.go"
-fi
+for GO_VERSION_FILE in go/pkg/*/version.go; do
+  if [ -f "$GO_VERSION_FILE" ]; then
+    perl -pi -e "s/^(const Version = \")[^\"]*\"/\${1}$VERSION\"/" "$GO_VERSION_FILE"
+    echo "  Updated $GO_VERSION_FILE"
+  fi
+done
 
 # TypeScript
 if [ -f typescript/package.json ]; then
@@ -22,22 +30,84 @@ if [ -f typescript/package.json ]; then
 fi
 
 # Ruby
-if [ -f ruby/lib/*/version.rb ]; then
-  perl -pi -e "s/VERSION = \".*\"/VERSION = \"$VERSION\"/" ruby/lib/*/version.rb
-  echo "  Updated ruby version.rb"
-fi
+for RUBY_VERSION_FILE in ruby/lib/*/version.rb; do
+  if [ -f "$RUBY_VERSION_FILE" ]; then
+    perl -pi -e "s/^(\s*VERSION = \")[^\"]*\"/\${1}$VERSION\"/" "$RUBY_VERSION_FILE"
+    echo "  Updated $RUBY_VERSION_FILE"
+  fi
+done
 
-# Swift
-SWIFT_CONFIG=$(find swift/Sources -name "*Config.swift" -maxdepth 3 2>/dev/null | head -1)
+# Swift. A narrower profile may not carry the tree at all; `find` on a missing
+# directory exits 1, which under `set -e` would end the script here.
+SWIFT_CONFIG=""
+if [ -d swift/Sources ]; then
+  SWIFT_CONFIG=$(find swift/Sources -name "*Config.swift" -maxdepth 3 | head -1)
+fi
 if [ -n "$SWIFT_CONFIG" ]; then
-  perl -pi -e "s/static let version = \".*\"/static let version = \"$VERSION\"/" "$SWIFT_CONFIG"
+  perl -pi -e "s/^(\s*(?:public )?static let version = \")[^\"]*\"/\${1}$VERSION\"/" "$SWIFT_CONFIG"
   echo "  Updated $SWIFT_CONFIG"
 fi
 
-# Kotlin
+# Kotlin — the Gradle project version and the VERSION constant the user agent is
+# built from; `make release` requires both.
 if [ -f kotlin/sdk/build.gradle.kts ]; then
-  perl -pi -e "s/version = \".*\"/version = \"$VERSION\"/" kotlin/sdk/build.gradle.kts
+  perl -pi -e "s/^(version = \")[^\"]*\"/\${1}$VERSION\"/" kotlin/sdk/build.gradle.kts
   echo "  Updated kotlin/sdk/build.gradle.kts"
+fi
+KOTLIN_CONFIG=""
+if [ -d kotlin/sdk/src/commonMain/kotlin ]; then
+  KOTLIN_CONFIG=$(find kotlin/sdk/src/commonMain/kotlin -name "*Config.kt" | head -1)
+fi
+if [ -n "$KOTLIN_CONFIG" ]; then
+  perl -pi -e "s/^(\s*const val VERSION = \")[^\"]*\"/\${1}$VERSION\"/" "$KOTLIN_CONFIG"
+  echo "  Updated $KOTLIN_CONFIG"
+fi
+
+# Rust — the ONE Rust version constant (code reads env!("CARGO_PKG_VERSION")).
+# The edit is bounded to the [package] table: a bare `^version = ` sed also
+# matches `[dependencies]` lines and any reordered table, and cargo has no
+# built-in setter without cargo-edit.
+if [ -f rust/sdk/Cargo.toml ]; then
+  awk -v want="version = \"$VERSION\"" '
+    /^\[/ { intable = ($0 == "[package]") }
+    intable && /^version = "/ { $0 = want }
+    { print }
+  ' rust/sdk/Cargo.toml > rust/sdk/Cargo.toml.tmp \
+    && cat rust/sdk/Cargo.toml.tmp > rust/sdk/Cargo.toml \
+    && rm rust/sdk/Cargo.toml.tmp
+  # Read it back through cargo's own parser: an awk pattern that matched nothing
+  # exits 0, and a bump that announced success over an unchanged crate version
+  # would only be caught at `make release`.
+  RUST_VERSION=$(cd rust && cargo metadata --no-deps --format-version 1 2>/dev/null \
+    | jq -r '.packages[] | select(.name == "{{.AppName}}-sdk") | .version')
+  if [ "$RUST_VERSION" != "$VERSION" ]; then
+    echo "ERROR: rust/sdk/Cargo.toml [package] version reads $RUST_VERSION after the edit, not $VERSION" >&2
+    exit 1
+  fi
+  echo "  Updated rust/sdk/Cargo.toml"
+  # The crate README advertises the crates.io requirement by minor — cargo reads
+  # "0.1" as ">=0.1.0, <0.2.0" — so a bump across a minor has to move it, or the
+  # README keeps installing the previous line. Anchored to the whole line and read
+  # back like the Cargo.toml edit: a README that lost the line is one the bump
+  # cannot keep true.
+  RUST_MINOR="${VERSION%.*}"
+  perl -pi -e "s/^({{.AppName}}-sdk = \")[0-9.]*\"\$/\${1}$RUST_MINOR\"/" rust/sdk/README.md
+  if ! grep -Fxq "{{.AppName}}-sdk = \"$RUST_MINOR\"" rust/sdk/README.md; then
+    echo "ERROR: rust/sdk/README.md does not carry the '{{.AppName}}-sdk = \"$RUST_MINOR\"' requirement line after the edit" >&2
+    exit 1
+  fi
+  echo "  Updated rust/sdk/README.md"
+  # Both lockfiles record the SDK's version (the workspace's own members in
+  # rust/Cargo.lock; the path dep on ../../../rust/sdk in the conformance
+  # runner's). Both are tracked and every consumer passes --locked, so a stale
+  # one fails the next build instead of being rewritten silently. `-w` limits
+  # the update to workspace members; --offline because nothing else moves.
+  (cd rust && cargo update -q -w --offline)
+  echo "  Updated rust/Cargo.lock"
+  if [ -f conformance/runner/rust/Cargo.toml ]; then
+    (cd conformance/runner/rust && cargo update -q -w --offline)
+    echo "  Updated conformance/runner/rust/Cargo.lock"
+  fi
 fi
 
 echo "Done. All versions set to $VERSION."

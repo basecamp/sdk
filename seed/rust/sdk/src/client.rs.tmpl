@@ -1,0 +1,1524 @@
+//! SPEC §3: the client, and the account-scoped client every service hangs off.
+
+use std::fmt;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use bytes::Bytes;
+use serde::de::DeserializeOwned;
+use url::Url;
+
+use crate::auth::{AuthStrategy, BearerAuth, StaticTokenProvider, TokenProvider};
+use crate::config::Config;
+use crate::deadline::Deadline;
+use crate::error::{Error, ErrorCode, parse_retry_after_header};
+use crate::hooks::{Hooks, NoopHooks, OperationInfo, OperationResult, RequestInfo, RequestResult};
+use crate::http::header::{ACCEPT, CONTENT_TYPE, USER_AGENT};
+use crate::http::{
+    Body, HeaderMap, HeaderValue, HttpClient, Request, Response as HttpResponse, StatusCode,
+};
+use crate::operation::Operation;
+use crate::pagination::Page;
+use crate::retry::{backoff_with_jitter, effective_attempts};
+use crate::route::{Representation, Route};
+use crate::security::{BodySize, is_same_origin, require_secure_endpoint};
+use crate::version::default_user_agent;
+
+/// A {{.AppTitle}} client: one identity, one API origin. Derive an [`AccountClient`] with
+/// [`Client::for_account`] to reach the services.
+///
+/// Clients are cheap to clone and share their connection pool, credentials and hooks.
+#[derive(Clone)]
+pub struct Client {
+    shared: Arc<Shared>,
+}
+
+/// The client scoped to one account: where every service lives.
+#[derive(Clone)]
+pub struct AccountClient {
+    shared: Arc<Shared>,
+    account_id: String,
+}
+
+pub(crate) struct Shared {
+    pub(crate) config: Config,
+    pub(crate) base_url: Url,
+    pub(crate) http: Arc<dyn HttpClient>,
+    pub(crate) auth: Arc<dyn AuthStrategy>,
+    pub(crate) user_agent: String,
+    pub(crate) hooks: Arc<dyn Hooks>,
+}
+
+/// What came back from {{.AppTitle}}, before it is decoded. Its `Debug` form redacts the
+/// credential-bearing headers (SPEC §9) and gives the body's size in place of its bytes.
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct Response {
+    /// The status.
+    pub status: StatusCode,
+    /// The headers.
+    pub headers: HeaderMap,
+    /// The body, read whole.
+    pub body: Bytes,
+    /// The URL the answer came from.
+    pub url: Url,
+}
+
+impl fmt::Debug for Response {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Response")
+            .field("status", &self.status)
+            .field("headers", &crate::security::redact_headers(&self.headers))
+            .field("body", &BodySize(self.body.len()))
+            .field("url", &self.url)
+            .finish()
+    }
+}
+
+impl Response {
+    /// The body decoded as JSON. A body that does not decode as `T` is a statusless,
+    /// non-retryable `api_error` (SPEC §6) that keeps the request id.
+    pub fn json<T: DeserializeOwned>(&self) -> Result<T, Error> {
+        serde_json::from_slice(&self.body).map_err(|error| {
+            let mut mapped = Error::malformed_response(error.to_string());
+            if let Some(request_id) = self.header("x-request-id") {
+                mapped = mapped.with_request_id(request_id);
+            }
+            mapped
+        })
+    }
+
+    /// One header, when present and readable as text.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).and_then(|value| value.to_str().ok())
+    }
+}
+
+/// Builds a [`Client`].
+pub struct ClientBuilder {
+    config: Config,
+    auth: Option<Arc<dyn AuthStrategy>>,
+    http: Option<Arc<dyn HttpClient>>,
+    user_agent: String,
+    hooks: Arc<dyn Hooks>,
+    auth_given: u8,
+}
+
+impl ClientBuilder {
+    /// A builder over a configuration.
+    pub fn new(config: Config) -> ClientBuilder {
+        ClientBuilder {
+            config,
+            auth: None,
+            http: None,
+            user_agent: default_user_agent(),
+            hooks: Arc::new(NoopHooks),
+            auth_given: 0,
+        }
+    }
+
+    /// A fixed bearer token — a personal access token, say.
+    pub fn access_token(self, token: impl Into<String>) -> ClientBuilder {
+        self.token_provider(StaticTokenProvider::new(token.into()))
+    }
+
+    /// Bearer authentication over a [`TokenProvider`], refreshed on 401 where the provider
+    /// supports it.
+    pub fn token_provider(self, provider: impl TokenProvider + 'static) -> ClientBuilder {
+        self.auth_strategy(BearerAuth::new(provider))
+    }
+
+    /// Any [`AuthStrategy`]. Exactly one of this, [`ClientBuilder::access_token`] or
+    /// [`ClientBuilder::token_provider`] must be given.
+    pub fn auth_strategy(mut self, strategy: impl AuthStrategy + 'static) -> ClientBuilder {
+        self.auth_given += 1;
+        self.auth = Some(Arc::new(strategy));
+        self
+    }
+
+    /// Replaces the HTTP client every request goes out on. It must not follow redirects;
+    /// see [`HttpClient`]. The configured timeout then has no effect — a timeout belongs to
+    /// the client that can enforce it.
+    pub fn http_client(mut self, http: impl HttpClient + 'static) -> ClientBuilder {
+        self.http = Some(Arc::new(http));
+        self
+    }
+
+    /// Another `User-Agent`.
+    pub fn user_agent(mut self, user_agent: impl Into<String>) -> ClientBuilder {
+        self.user_agent = user_agent.into();
+        self
+    }
+
+    /// Reports every operation and every request the client makes. Several sets of hooks
+    /// go on as one with [`crate::hooks::ChainHooks`].
+    pub fn hooks(mut self, hooks: impl Hooks + 'static) -> ClientBuilder {
+        self.hooks = Arc::new(hooks);
+        self
+    }
+
+    /// The whole-operation deadline; see [`Config::operation_deadline`].
+    pub fn operation_deadline(mut self, deadline: Duration) -> ClientBuilder {
+        self.config.operation_deadline = Some(deadline);
+        self
+    }
+
+    /// Validates the configuration (SPEC §2) and builds the client.
+    pub fn build(self) -> Result<Client, Error> {
+        if self.auth_given > 1 {
+            return Err(Error::usage(
+                "Provide either auth or access_token, not both",
+            ));
+        }
+        let auth = self
+            .auth
+            .ok_or_else(|| Error::usage("Either auth or access_token is required"))?;
+        let base_url = parse_base_url(&self.config.base_url)?;
+        self.config.validate()?;
+        let http = match self.http {
+            Some(http) => http,
+            None => shipped_http_client(self.config.timeout)?,
+        };
+        Ok(Client {
+            shared: Arc::new(Shared {
+                config: self.config,
+                base_url,
+                http,
+                auth,
+                user_agent: self.user_agent,
+                hooks: self.hooks,
+            }),
+        })
+    }
+}
+
+impl Client {
+    /// A builder over a configuration.
+    pub fn builder(config: Config) -> ClientBuilder {
+        ClientBuilder::new(config)
+    }
+
+    /// The configuration the client was built with.
+    pub fn config(&self) -> &Config {
+        &self.shared.config
+    }
+
+    /// The API origin.
+    pub fn base_url(&self) -> &Url {
+        &self.shared.base_url
+    }
+
+    /// The client scoped to one account. Every account-scoped path is prefixed with the id.
+    pub fn for_account(&self, account_id: impl Into<String>) -> AccountClient {
+        AccountClient {
+            shared: self.shared.clone(),
+            account_id: account_id.into(),
+        }
+    }
+}
+
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Client")
+            .field("base_url", &self.shared.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Debug for AccountClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AccountClient")
+            .field("base_url", &self.shared.base_url)
+            .field("account_id", &self.account_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AccountClient {
+    /// The account this client is scoped to.
+    pub fn account_id(&self) -> &str {
+        &self.account_id
+    }
+
+    /// The configuration the client was built with.
+    pub fn config(&self) -> &Config {
+        &self.shared.config
+    }
+
+    /// The API origin.
+    pub fn base_url(&self) -> &Url {
+        &self.shared.base_url
+    }
+
+    /// How many pages an auto-paginating read follows.
+    pub fn max_pages(&self) -> usize {
+        self.shared.config.max_pages
+    }
+
+    /// The account-independent client this was derived from.
+    pub fn client(&self) -> Client {
+        Client {
+            shared: self.shared.clone(),
+        }
+    }
+
+    /// Starts a request for one of the modelled routes. Generated service methods call
+    /// this; reach for it directly only to add a query parameter they do not expose.
+    pub fn operation(&self, route: &'static Route, params: &[&dyn fmt::Display]) -> Operation {
+        Operation::for_route(route, params)
+    }
+
+    /// Sends an operation and decodes its JSON body.
+    pub async fn send<T: DeserializeOwned>(&self, operation: Operation) -> Result<T, Error> {
+        self.run(operation, |response| response.json()).await
+    }
+
+    /// The whole-operation deadline, started now (SPEC §2's `operation_deadline`).
+    pub(crate) fn deadline(&self) -> Deadline {
+        Deadline::starting_now(self.shared.config.operation_deadline)
+    }
+
+    /// Sends an operation whose answer carries no body worth reading.
+    pub async fn send_unit(&self, operation: Operation) -> Result<(), Error> {
+        self.run(operation, |_| Ok(())).await
+    }
+
+    /// Sends a paginated read and keeps the cursor {{.AppTitle}} answered with.
+    pub async fn send_page<T: DeserializeOwned>(
+        &self,
+        operation: Operation,
+    ) -> Result<Page<T>, Error> {
+        let route = operation.route;
+        let info = operation.info.clone();
+        let pinned = operation.pins_a_page();
+        self.run(operation, |response| {
+            Ok(Page::new(response.json()?, &response, route, info, pinned))
+        })
+        .await
+    }
+
+    /// Sends an operation and reads its answer with `decode`, so a body that does not decode
+    /// ends the operation as a failure in the hooks' eyes too (SPEC §12).
+    pub async fn run<T>(
+        &self,
+        operation: Operation,
+        decode: impl FnOnce(Response) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let deadline = self.deadline();
+        self.observe(&operation, async {
+            self.dispatch(&operation, &deadline).await.and_then(decode)
+        })
+        .await
+    }
+
+    /// The follow-on read for a `Link` target: the same route and hook identity as the
+    /// page it follows, the target checked against the origin the walk started on
+    /// (SPEC §8).
+    pub(crate) fn follow_up<T>(&self, page: &Page<T>, next: &Url) -> Result<Operation, Error> {
+        self.follow_up_at(page.route(), page.info(), page.origin(), next)
+    }
+
+    #[allow(clippy::unused_self)]
+    pub(crate) fn follow_up_at(
+        &self,
+        route: &'static Route,
+        info: &OperationInfo,
+        origin: &Url,
+        next: &Url,
+    ) -> Result<Operation, Error> {
+        if !is_same_origin(next, origin) {
+            return Err(Error::usage(format!(
+                "pagination Link header points to a different origin: {}",
+                crate::security::redact_url(next)
+            )));
+        }
+        Ok(Operation::at(route, info.clone(), next.clone()))
+    }
+
+    /// Sends an operation: applies credentials and account scope, retries transient
+    /// failures under SPEC §7's three gates, resends once after a refreshed 401, and maps
+    /// every non-2xx status onto an [`Error`].
+    pub async fn execute(&self, operation: Operation) -> Result<Response, Error> {
+        let deadline = self.deadline();
+        self.observe(&operation, self.dispatch(&operation, &deadline))
+            .await
+    }
+
+    /// Runs `work` inside the operation hook lifecycle. The operation deadline is applied
+    /// inside `work`, at each await, so a request the deadline cuts short still reports
+    /// its end to the request hooks before the operation ends.
+    pub(crate) async fn observe<T>(
+        &self,
+        operation: &Operation,
+        work: impl std::future::Future<Output = Result<T, Error>>,
+    ) -> Result<T, Error> {
+        let started = Instant::now();
+        let hooks = self.shared.hooks.clone();
+        crate::hooks::guarded(|| hooks.on_operation_start(&operation.info));
+        let outcome = work.await;
+        let result = OperationResult {
+            error: outcome.as_ref().err(),
+            duration: started.elapsed(),
+        };
+        crate::hooks::guarded(|| hooks.on_operation_end(&operation.info, &result));
+        outcome
+    }
+
+    #[cfg(feature = "tracing")]
+    async fn dispatch(
+        &self,
+        operation: &Operation,
+        deadline: &Deadline,
+    ) -> Result<Response, Error> {
+        use tracing::Instrument;
+        let span = tracing::info_span!(
+            "{{.AppName}}.operation",
+            operation = operation.route.id,
+            service = operation.route.service,
+            http.status = tracing::field::Empty,
+            request_id = tracing::field::Empty,
+        );
+        let mut observed = None;
+        let result = self
+            .attempts(operation, deadline, &mut observed)
+            .instrument(span.clone())
+            .await;
+        // The span describes the attempt the operation ended on. A response an earlier
+        // attempt retried past says nothing about how this one came out, and an attempt
+        // that failed before a status arrived leaves both fields empty.
+        if let Some(observed) = observed {
+            span.record("http.status", observed.status.as_u16());
+            if let Some(id) = &observed.request_id {
+                span.record("request_id", id.as_str());
+            }
+        }
+        result
+    }
+
+    #[cfg(not(feature = "tracing"))]
+    async fn dispatch(
+        &self,
+        operation: &Operation,
+        deadline: &Deadline,
+    ) -> Result<Response, Error> {
+        self.attempts(operation, deadline, &mut None).await
+    }
+
+    /// SPEC §7's loop, written out in the order the specification states it. `observed`
+    /// is left holding the status and request id of the attempt the loop ended on, or
+    /// nothing when that attempt failed before a status arrived.
+    #[allow(clippy::too_many_lines)]
+    async fn attempts(
+        &self,
+        operation: &Operation,
+        deadline: &Deadline,
+        observed: &mut Option<Observed>,
+    ) -> Result<Response, Error> {
+        let route = operation.route;
+        let retry = &route.metadata.retry;
+        let eligible = route.retry_eligible();
+        // The transient-retry ceiling (SPEC §7), and the budget the replay after a
+        // refreshed 401 draws on (SPEC §4): the same ceiling on a retry-eligible route, the
+        // caller's cap alone on one the gates make single-attempt, which otherwise could
+        // never replay.
+        let attempts = if eligible {
+            effective_attempts(self.shared.config.max_retries, retry.max_attempts)
+        } else {
+            1
+        };
+        let budget = if eligible {
+            attempts
+        } else {
+            effective_attempts(self.shared.config.max_retries, u32::MAX)
+        };
+        let url = self.url_for(operation)?;
+        let hooks = &self.shared.hooks;
+        let mut refreshed = false;
+        let mut attempt: u32 = 1;
+        let mut retry_index: u32 = 0;
+
+        loop {
+            // Read before authenticating: a stamp older than the credentials shares the
+            // verdict of the refresh that produced them, where a newer one would refresh
+            // again.
+            let generation = self.shared.auth.generation();
+            *observed = None;
+            let request = deadline.bound(self.prepare(operation, &url)).await?;
+            let info = RequestInfo {
+                method: operation.method.clone(),
+                url: url.clone(),
+                attempt,
+            };
+            crate::hooks::guarded(|| hooks.on_request_start(&info));
+            let sent_at = Instant::now();
+            let sent = deadline.bound(self.shared.http.send(request)).await;
+            let duration = sent_at.elapsed();
+
+            match sent {
+                Err(error) => {
+                    crate::hooks::guarded(|| {
+                        hooks.on_request_end(
+                            &info,
+                            &RequestResult {
+                                status: None,
+                                duration,
+                                error: Some(&error),
+                                retry_after: None,
+                            },
+                        );
+                    });
+                    // A timed-out attempt spent its whole per-attempt budget; another
+                    // would spend another on the same slowness (SPEC §14).
+                    if eligible
+                        && attempt < attempts
+                        && !error.is_timeout()
+                        && !error.is_deadline_exceeded()
+                    {
+                        let delay =
+                            backoff_with_jitter(retry, retry_index, self.shared.config.max_jitter);
+                        deadline.admits(delay)?;
+                        crate::hooks::guarded(|| hooks.on_retry(&info, attempt + 1, &error, delay));
+                        deadline.wait(delay).await?;
+                        retry_index += 1;
+                        attempt += 1;
+                    } else {
+                        return Err(error);
+                    }
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    let retry_after =
+                        parse_retry_after_header(response.headers(), chrono::Utc::now());
+                    *observed = Some(Observed {
+                        status,
+                        request_id: response
+                            .headers()
+                            .get("x-request-id")
+                            .and_then(|v| v.to_str().ok())
+                            .map(str::to_owned),
+                    });
+                    if status == StatusCode::UNAUTHORIZED
+                        && !refreshed
+                        && attempt < budget
+                        && self.shared.auth.refreshable()
+                    {
+                        // The body is read now, not after the refresh: every request that
+                        // met the expiry waits on the one coalesced refresh, and a body
+                        // alive through that wait holds its connection for the duration.
+                        let cause = self.finish_failure(operation, response, deadline).await;
+                        crate::hooks::guarded(|| {
+                            hooks.on_request_end(
+                                &info,
+                                &RequestResult {
+                                    status: Some(status),
+                                    duration,
+                                    error: Some(&cause),
+                                    retry_after,
+                                },
+                            );
+                        });
+                        if cause.is_deadline_exceeded() {
+                            return Err(cause);
+                        }
+                        refreshed = true;
+                        let renewed =
+                            match deadline.bound(self.shared.auth.refresh(generation)).await {
+                                Ok(renewed) => renewed,
+                                Err(cause) if cause.is_deadline_exceeded() => return Err(cause),
+                                Err(cause) => {
+                                    return Err(Error::new(
+                                        ErrorCode::AuthRequired,
+                                        "credentials could not be refreshed",
+                                    )
+                                    .with_status(401)
+                                    .with_source(cause));
+                                }
+                            };
+                        if renewed {
+                            crate::hooks::guarded(|| {
+                                hooks.on_retry(&info, attempt + 1, &cause, Duration::ZERO);
+                            });
+                            attempt += 1;
+                            continue;
+                        }
+                        return Err(cause);
+                    }
+                    if eligible && attempt < attempts && retry.retry_on.contains(&status.as_u16()) {
+                        let cause = Error::from_response(status, response.headers(), &[]);
+                        crate::hooks::guarded(|| {
+                            hooks.on_request_end(
+                                &info,
+                                &RequestResult {
+                                    status: Some(status),
+                                    duration,
+                                    error: Some(&cause),
+                                    retry_after,
+                                },
+                            );
+                        });
+                        // Nothing of the response is read past here, so the connection
+                        // its body holds goes back to the pool before the wait rather
+                        // than after it.
+                        drop(response);
+                        let delay = match retry_after {
+                            Some(seconds) => Duration::from_secs(u64::from(seconds)),
+                            None => backoff_with_jitter(
+                                retry,
+                                retry_index,
+                                self.shared.config.max_jitter,
+                            ),
+                        };
+                        deadline.admits(delay)?;
+                        crate::hooks::guarded(|| hooks.on_retry(&info, attempt + 1, &cause, delay));
+                        deadline.wait(delay).await?;
+                        retry_index += 1;
+                        attempt += 1;
+                        continue;
+                    }
+                    let finished = self
+                        .finish(operation, url.clone(), response, deadline)
+                        .await;
+                    crate::hooks::guarded(|| {
+                        hooks.on_request_end(
+                            &info,
+                            &RequestResult {
+                                status: Some(status),
+                                duration,
+                                error: finished.as_ref().err(),
+                                retry_after,
+                            },
+                        );
+                    });
+                    // A connection that broke while the body was streaming is the same
+                    // transport failure as one that broke before the status arrived, and
+                    // is retried the same way; a decode or size refusal is not.
+                    match finished {
+                        Err(error)
+                            if eligible
+                                && attempt < attempts
+                                && error.code() == ErrorCode::Network
+                                && !error.is_timeout()
+                                && !error.is_deadline_exceeded() =>
+                        {
+                            let delay = backoff_with_jitter(
+                                retry,
+                                retry_index,
+                                self.shared.config.max_jitter,
+                            );
+                            deadline.admits(delay)?;
+                            crate::hooks::guarded(|| {
+                                hooks.on_retry(&info, attempt + 1, &error, delay);
+                            });
+                            deadline.wait(delay).await?;
+                            retry_index += 1;
+                            attempt += 1;
+                        }
+                        finished => return finished,
+                    }
+                }
+            }
+        }
+    }
+
+    /// SPEC §3's `buildURL`: an absolute same-origin URL as given; else the base URL —
+    /// any path it carries included — the account id and the path.
+    pub(crate) fn url_for(&self, operation: &Operation) -> Result<Url, Error> {
+        let mut url = if let Some(url) = &operation.url {
+            if !is_same_origin(url, &self.shared.base_url) {
+                return Err(Error::usage("absolute URL must be same-origin as base_url"));
+            }
+            url.clone()
+        } else {
+            let path = operation.path.trim_start_matches('/');
+            let mut url = self.shared.base_url.clone();
+            let prefix = self.shared.base_url.path().trim_end_matches('/');
+            let account = account_segment(&self.account_id)?;
+            let built = format!("{prefix}/{account}/{path}");
+            url.set_path(&built);
+            // The parser folds `.` and `..` segments (percent-encoded or not), so a
+            // parameter value of either would aim the request — credentials attached —
+            // at a path the route never modelled. The path the URL kept must be the
+            // path the route built.
+            if url.path() != built {
+                return Err(Error::usage(format!(
+                    "request path {built:?} is not the path {} would send: a path parameter is \
+                     `.` or `..`",
+                    operation.route.id
+                )));
+            }
+            url
+        };
+        if !operation.query.is_empty() {
+            url.query_pairs_mut().extend_pairs(&operation.query);
+        }
+        Ok(url)
+    }
+
+    async fn prepare(&self, operation: &Operation, url: &Url) -> Result<Request<Bytes>, Error> {
+        let mut request = Request::builder()
+            .method(operation.method.clone())
+            .uri(url.as_str())
+            .body(Bytes::new())
+            .map_err(|error| Error::usage(format!("request could not be built: {error}")))?;
+        let headers = request.headers_mut();
+        headers.insert(USER_AGENT, header_value(&self.shared.user_agent)?);
+        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        if let Some(body) = &operation.body {
+            headers.insert(CONTENT_TYPE, header_value(&body.content_type)?);
+            *request.body_mut() = body.bytes.clone();
+        }
+        self.shared.auth.authenticate(&mut request).await?;
+        Ok(request)
+    }
+
+    async fn finish(
+        &self,
+        operation: &Operation,
+        url: Url,
+        response: HttpResponse<Body>,
+        deadline: &Deadline,
+    ) -> Result<Response, Error> {
+        let status = response.status();
+        if !status.is_success() {
+            return Err(self.finish_failure(operation, response, deadline).await);
+        }
+        let headers = response.headers().clone();
+        let limit = self.shared.config.max_response_body_bytes;
+        let body = deadline
+            .bound(
+                response
+                    .into_body()
+                    .collect(limit, || Error::response_too_large(limit)),
+            )
+            .await?;
+        if operation.route.response == Representation::Json
+            && body.is_empty()
+            && status != StatusCode::NO_CONTENT
+        {
+            let mut error = Error::malformed_response("empty body");
+            if let Some(id) = headers.get("x-request-id").and_then(|v| v.to_str().ok()) {
+                error = error.with_request_id(id);
+            }
+            return Err(error);
+        }
+        Ok(Response {
+            status,
+            headers,
+            body,
+            url,
+        })
+    }
+
+    /// The error a non-2xx response maps to, its body read under the deadline: a body
+    /// that stalls past it is the deadline error, and one that fails to read is the
+    /// status alone.
+    async fn finish_failure(
+        &self,
+        _operation: &Operation,
+        response: HttpResponse<Body>,
+        deadline: &Deadline,
+    ) -> Error {
+        let status = response.status();
+        let headers = response.headers().clone();
+        let read = response
+            .into_body()
+            .collect(crate::error::MAX_ERROR_BODY_BYTES, || {
+                Error::response_too_large(crate::error::MAX_ERROR_BODY_BYTES)
+            });
+        match deadline.bound(read).await {
+            Ok(body) => Error::from_response(status, &headers, &body),
+            Err(error) if error.is_deadline_exceeded() => error,
+            Err(_) => Error::from_response(status, &headers, &[]),
+        }
+    }
+}
+
+/// What an attempt received before the loop went on: the tracing span's fields.
+#[cfg_attr(not(feature = "tracing"), allow(dead_code))]
+struct Observed {
+    status: StatusCode,
+    request_id: Option<String>,
+}
+
+#[cfg(feature = "reqwest")]
+fn shipped_http_client(timeout: Duration) -> Result<Arc<dyn HttpClient>, Error> {
+    Ok(Arc::new(crate::http::ReqwestClient::with_timeout(timeout)?))
+}
+
+#[cfg(not(feature = "reqwest"))]
+fn shipped_http_client(_timeout: Duration) -> Result<Arc<dyn HttpClient>, Error> {
+    Err(Error::usage(
+        "no HTTP client: supply one with ClientBuilder::http_client, or enable the reqwest feature",
+    ))
+}
+
+/// The account id as one path segment: percent-encoded, and never a segment that the URL
+/// parser would fold away (`.`, `..`, nothing at all), which would put the request outside
+/// the account's scope.
+fn account_segment(account_id: &str) -> Result<String, Error> {
+    let trimmed = account_id.trim_matches('.');
+    if account_id.is_empty() || trimmed.is_empty() {
+        return Err(Error::usage(format!(
+            "account id {account_id:?} is not a path segment"
+        )));
+    }
+    Ok(percent_encoding::utf8_percent_encode(account_id, ACCOUNT_SEGMENT).to_string())
+}
+
+const ACCOUNT_SEGMENT: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'~');
+
+fn parse_base_url(base_url: &str) -> Result<Url, Error> {
+    // The input is never echoed: a mistyped URL may carry a credential the parser
+    // refused before the userinfo check below could, and the error reaches logs.
+    let mut url = Url::parse(base_url.trim_end_matches('/'))
+        .map_err(|error| Error::usage(format!("base URL could not be parsed: {error}")))?;
+    if url.cannot_be_a_base() || url.host_str().is_none() {
+        return Err(Error::usage("base URL has no host"));
+    }
+    // Credentials travel in the Authorization header, never in the URL: a userinfo part
+    // would be stored, printed by every Debug and sent to the transport on each request.
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Error::usage(
+            "base URL must not carry a username or password",
+        ));
+    }
+    require_secure_endpoint(&url).map_err(|_| Error::usage("base URL must use HTTPS"))?;
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url)
+}
+
+pub(crate) fn header_value(value: &str) -> Result<HeaderValue, Error> {
+    HeaderValue::from_str(value)
+        .map_err(|_| Error::usage(format!("{value:?} is not a valid header value")))
+}
+
+impl From<ErrorCode> for Error {
+    fn from(code: ErrorCode) -> Error {
+        Error::new(code, code.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+
+    use super::*;
+    use crate::route::{
+        Backoff, BodyKind, OperationMetadata, Pagination, ParamKind, Representation, RetryConfig,
+        RouteParam,
+    };
+
+    static META: OperationMetadata = OperationMetadata {
+        operation: "GetWidget",
+        idempotent: false,
+        readonly: true,
+        retry: RetryConfig {
+            max_attempts: 3,
+            base_delay_ms: 1,
+            backoff: Backoff::Constant,
+            retry_on: &[429, 503],
+        },
+    };
+
+    static GET_WIDGET: Route = Route {
+        id: "GetWidget",
+        service: "Widgets",
+        method: crate::http::Method::GET,
+        path: "/widgets/{widgetId}.json",
+        pattern: "/widgets/{widgetId}",
+        resource_type: "widget",
+        params: &[RouteParam {
+            name: "widgetId",
+            kind: ParamKind::Int64,
+        }],
+        body: BodyKind::None,
+        response: Representation::Json,
+        pagination: Pagination::None,
+        write: None,
+        deprecated: false,
+        metadata: &META,
+    };
+
+    /// A route whose parameter is a whole path segment, where a dot-only value would fold.
+    static LIST_CHILDREN: Route = Route {
+        id: "ListChildren",
+        service: "Children",
+        method: crate::http::Method::GET,
+        path: "/parents/{slug}/children.json",
+        pattern: "/parents/{slug}/children",
+        resource_type: "child",
+        params: &[RouteParam {
+            name: "slug",
+            kind: ParamKind::String,
+        }],
+        body: BodyKind::None,
+        response: Representation::Json,
+        pagination: Pagination::None,
+        write: None,
+        deprecated: false,
+        metadata: &META,
+    };
+
+    /// One scripted answer: status, headers, body. Status 0 is a connection that failed
+    /// before any status arrived.
+    type Answer = (u16, Vec<(&'static str, &'static str)>, &'static str);
+
+    /// An [`HttpClient`] that answers from a script and records what it was sent.
+    struct Scripted {
+        answers: Mutex<Vec<Answer>>,
+        sent: Mutex<Vec<Request<Bytes>>>,
+        /// The bodies handed out that have not been dropped yet.
+        live_bodies: Arc<AtomicUsize>,
+    }
+
+    impl Scripted {
+        fn new(answers: Vec<Answer>) -> Scripted {
+            Scripted {
+                answers: Mutex::new(answers),
+                sent: Mutex::new(Vec::new()),
+                live_bodies: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        fn body(&self, text: &'static str) -> Body {
+            self.live_bodies.fetch_add(1, Ordering::SeqCst);
+            let bytes = Bytes::from_static(text.as_bytes());
+            let length = Some(bytes.len() as u64);
+            let stream = Counted {
+                chunk: Some(bytes),
+                _live: LiveBody(self.live_bodies.clone()),
+            };
+            Body::from_stream(stream, length)
+        }
+    }
+
+    /// A one-chunk body stream that counts itself as live until it is dropped.
+    struct Counted {
+        chunk: Option<Bytes>,
+        _live: LiveBody,
+    }
+
+    struct LiveBody(Arc<AtomicUsize>);
+
+    impl Drop for LiveBody {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl futures_util::Stream for Counted {
+        type Item = Result<Bytes, Error>;
+
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            std::task::Poll::Ready(self.chunk.take().map(Ok))
+        }
+    }
+
+    #[async_trait]
+    impl HttpClient for Scripted {
+        async fn send(&self, request: Request<Bytes>) -> Result<HttpResponse<Body>, Error> {
+            self.sent.lock().unwrap().push(request);
+            let mut answers = self.answers.lock().unwrap();
+            assert!(!answers.is_empty(), "the script ran out of answers");
+            let (status, headers, body) = answers.remove(0);
+            if status == 0 {
+                return Err(Error::network(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "connection reset",
+                )));
+            }
+            let mut response = HttpResponse::new(self.body(body));
+            *response.status_mut() = StatusCode::from_u16(status).unwrap();
+            for (name, value) in headers {
+                response
+                    .headers_mut()
+                    .insert(name, HeaderValue::from_static(value));
+            }
+            Ok(response)
+        }
+    }
+
+    struct Refreshing {
+        refreshes: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl TokenProvider for Refreshing {
+        async fn access_token(&self) -> Result<String, Error> {
+            Ok(format!("token-{}", self.refreshes.load(Ordering::SeqCst)))
+        }
+
+        fn refreshable(&self) -> bool {
+            true
+        }
+
+        async fn refresh(&self) -> Result<bool, Error> {
+            self.refreshes.fetch_add(1, Ordering::SeqCst);
+            Ok(true)
+        }
+    }
+
+    fn client(http: Arc<Scripted>) -> AccountClient {
+        Client::builder(Config {
+            max_jitter: Duration::ZERO,
+            ..Default::default()
+        })
+        .access_token("secret")
+        .http_client(http)
+        .build()
+        .unwrap()
+        .for_account("999")
+    }
+
+    #[test]
+    fn the_builder_needs_exactly_one_credential_and_an_https_origin() {
+        assert_eq!(
+            Client::builder(Config::default())
+                .build()
+                .unwrap_err()
+                .message(),
+            "Either auth or access_token is required"
+        );
+        assert_eq!(
+            Client::builder(Config::default())
+                .access_token("a")
+                .access_token("b")
+                .build()
+                .unwrap_err()
+                .message(),
+            "Provide either auth or access_token, not both"
+        );
+        let insecure = Config::default().with_base_url("http://api.example.com");
+        assert_eq!(
+            Client::builder(insecure)
+                .access_token("a")
+                .build()
+                .unwrap_err()
+                .message(),
+            "base URL must use HTTPS"
+        );
+        let with_userinfo = Config::default().with_base_url("https://user:secret@api.example.com");
+        assert_eq!(
+            Client::builder(with_userinfo)
+                .access_token("a")
+                .build()
+                .unwrap_err()
+                .message(),
+            "base URL must not carry a username or password"
+        );
+        let unparseable =
+            Config::default().with_base_url("https://user:secret@api.example.com:bad");
+        let error = Client::builder(unparseable)
+            .access_token("a")
+            .build()
+            .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::Usage);
+        assert!(
+            !format!("{error} {error:?}").contains("secret"),
+            "{error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn requests_carry_the_account_scope_the_credentials_and_the_user_agent() {
+        let http = Arc::new(Scripted::new(vec![(200, vec![], r#"{"id": 1}"#)]));
+        let account = client(http.clone());
+        let operation = account.operation(&GET_WIDGET, &[&1]);
+        let response = account.execute(operation).await.unwrap();
+        assert_eq!(response.status, StatusCode::OK);
+        let sent = http.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0].uri().to_string(),
+            "https://3.basecampapi.com/999/widgets/1.json"
+        );
+        assert_eq!(sent[0].headers()["authorization"], "Bearer secret");
+        assert_eq!(
+            sent[0].headers()["user-agent"],
+            default_user_agent().as_str()
+        );
+        assert_eq!(sent[0].headers()["accept"], "application/json");
+    }
+
+    #[tokio::test]
+    async fn transient_statuses_are_retried_under_the_operation_ceiling() {
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![], ""),
+            (429, vec![("retry-after", "0")], ""),
+            (200, vec![], r#"{"id": 1}"#),
+        ]));
+        let account = client(http.clone());
+        let response = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap();
+        assert_eq!(response.status, StatusCode::OK);
+        assert_eq!(http.sent.lock().unwrap().len(), 3);
+    }
+
+    /// Counts the resends the hooks are told about.
+    struct CountingRetries {
+        retries: AtomicUsize,
+    }
+
+    impl Hooks for CountingRetries {
+        fn on_retry(&self, _: &RequestInfo, _: u32, _: &Error, _: Duration) {
+            self.retries.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_resend_the_deadline_does_not_admit_is_never_announced() {
+        let http = Arc::new(Scripted::new(vec![(429, vec![("retry-after", "5")], "")]));
+        let counting = Arc::new(CountingRetries {
+            retries: AtomicUsize::new(0),
+        });
+        let account = Client::builder(Config {
+            max_jitter: Duration::ZERO,
+            ..Default::default()
+        })
+        .access_token("secret")
+        .http_client(http.clone())
+        .hooks(counting.clone())
+        .operation_deadline(Duration::from_millis(100))
+        .build()
+        .unwrap()
+        .for_account("999");
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert!(error.is_deadline_exceeded(), "{error:?}");
+        assert_eq!(http.sent.lock().unwrap().len(), 1);
+        assert_eq!(counting.retries.load(Ordering::SeqCst), 0);
+    }
+
+    /// How many of the transport's bodies are still alive as each resend is announced.
+    struct BodiesAtRetry {
+        live: Arc<AtomicUsize>,
+        seen: Mutex<Vec<usize>>,
+    }
+
+    impl Hooks for BodiesAtRetry {
+        fn on_retry(&self, _: &RequestInfo, _: u32, _: &Error, _: Duration) {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(self.live.load(Ordering::SeqCst));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_retried_response_is_released_before_the_wait() {
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![], ""),
+            (429, vec![("retry-after", "0")], ""),
+            (200, vec![], r#"{"id": 1}"#),
+        ]));
+        let bodies = Arc::new(BodiesAtRetry {
+            live: http.live_bodies.clone(),
+            seen: Mutex::new(Vec::new()),
+        });
+        let account = Client::builder(Config {
+            max_jitter: Duration::ZERO,
+            ..Default::default()
+        })
+        .access_token("secret")
+        .http_client(http.clone())
+        .hooks(bodies.clone())
+        .build()
+        .unwrap()
+        .for_account("999");
+        account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap();
+        // The resend is announced after the response is let go and before the wait, so
+        // a body alive then would be one holding its connection through the backoff.
+        assert_eq!(*bodies.seen.lock().unwrap(), vec![0, 0]);
+        assert_eq!(http.live_bodies.load(Ordering::SeqCst), 0);
+    }
+
+    /// A subscriber that keeps the fields recorded on a span after it was made.
+    #[cfg(feature = "tracing")]
+    #[derive(Default)]
+    struct Recording {
+        fields: Mutex<std::collections::BTreeMap<&'static str, String>>,
+    }
+
+    #[cfg(feature = "tracing")]
+    impl tracing::field::Visit for &Recording {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
+            self.fields
+                .lock()
+                .unwrap()
+                .insert(field.name(), format!("{value:?}"));
+        }
+
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            self.fields
+                .lock()
+                .unwrap()
+                .insert(field.name(), value.to_owned());
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    impl tracing::Subscriber for Recording {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _: &tracing::span::Id, values: &tracing::span::Record<'_>) {
+            values.record(&mut &*self);
+        }
+
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+        fn event(&self, _: &tracing::Event<'_>) {}
+
+        fn enter(&self, _: &tracing::span::Id) {}
+
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[cfg(feature = "tracing")]
+    #[tokio::test]
+    async fn the_span_describes_the_attempt_the_operation_ended_on() {
+        use tracing::instrument::WithSubscriber;
+
+        // A 503 retried past, then a connection that fails before any status arrives,
+        // twice: the operation ends on a network error, and the span says nothing of
+        // the 503 or its request id.
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![("x-request-id", "req-1")], ""),
+            (0, vec![], ""),
+            (0, vec![], ""),
+        ]));
+        let account = client(http.clone());
+        let recording = Arc::new(Recording::default());
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .with_subscriber(recording.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::Network, "{error:?}");
+        assert_eq!(http.sent.lock().unwrap().len(), 3);
+        {
+            let fields = recording.fields.lock().unwrap();
+            assert!(fields.is_empty(), "{fields:?}");
+        }
+
+        // The same 503 retried into an answer: the span carries that answer's status and
+        // request id, not the 503's.
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![("x-request-id", "req-1")], ""),
+            (200, vec![("x-request-id", "req-2")], r#"{"id": 1}"#),
+        ]));
+        let account = client(http);
+        let recording = Arc::new(Recording::default());
+        account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .with_subscriber(recording.clone())
+            .await
+            .unwrap();
+        let fields = recording.fields.lock().unwrap();
+        assert_eq!(fields.get("http.status").map(String::as_str), Some("200"));
+        assert_eq!(fields.get("request_id").map(String::as_str), Some("req-2"));
+    }
+
+    #[tokio::test]
+    async fn the_last_transient_failure_is_the_answer_once_the_budget_is_spent() {
+        let http = Arc::new(Scripted::new(vec![
+            (503, vec![], ""),
+            (503, vec![], ""),
+            (503, vec![("x-request-id", "req-9")], r#"{"error": "down"}"#),
+        ]));
+        let account = client(http.clone());
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::ApiError);
+        assert_eq!(error.http_status(), Some(503));
+        assert_eq!(error.request_id(), Some("req-9"));
+        assert!(error.is_retryable());
+        assert_eq!(http.sent.lock().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn non_transient_statuses_map_once_and_are_not_retried() {
+        let http = Arc::new(Scripted::new(vec![(
+            404,
+            vec![],
+            r#"{"error": "Widget not found"}"#,
+        )]));
+        let account = client(http.clone());
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::NotFound);
+        assert_eq!(error.message(), "Widget not found");
+        assert!(!error.is_retryable());
+        assert_eq!(http.sent.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_refreshable_provider_replays_a_401_once_with_new_credentials() {
+        let http = Arc::new(Scripted::new(vec![
+            (401, vec![], ""),
+            (200, vec![], r#"{"id": 1}"#),
+        ]));
+        let account = Client::builder(Config::default())
+            .token_provider(Refreshing {
+                refreshes: AtomicUsize::new(0),
+            })
+            .http_client(http.clone())
+            .build()
+            .unwrap()
+            .for_account("999");
+        account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap();
+        let sent = http.sent.lock().unwrap();
+        assert_eq!(sent[0].headers()["authorization"], "Bearer token-0");
+        assert_eq!(sent[1].headers()["authorization"], "Bearer token-1");
+    }
+
+    /// A provider whose refresh finds nothing newer to offer.
+    struct Declining;
+
+    #[async_trait]
+    impl TokenProvider for Declining {
+        async fn access_token(&self) -> Result<String, Error> {
+            Ok("token".to_string())
+        }
+
+        fn refreshable(&self) -> bool {
+            true
+        }
+
+        async fn refresh(&self) -> Result<bool, Error> {
+            Ok(false)
+        }
+    }
+
+    /// A provider that notes how many of the transport's bodies are alive as it refreshes.
+    struct BodiesAtRefresh {
+        live: Arc<AtomicUsize>,
+        seen: Mutex<Vec<usize>>,
+    }
+
+    #[async_trait]
+    impl TokenProvider for BodiesAtRefresh {
+        async fn access_token(&self) -> Result<String, Error> {
+            Ok("token".to_string())
+        }
+
+        fn refreshable(&self) -> bool {
+            true
+        }
+
+        async fn refresh(&self) -> Result<bool, Error> {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(self.live.load(Ordering::SeqCst));
+            Ok(true)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_401_is_released_before_the_refresh_is_awaited() {
+        let http = Arc::new(Scripted::new(vec![
+            (401, vec![], r#"{"error": "token expired"}"#),
+            (200, vec![], r#"{"id": 1}"#),
+        ]));
+        let provider = Arc::new(BodiesAtRefresh {
+            live: http.live_bodies.clone(),
+            seen: Mutex::new(Vec::new()),
+        });
+        let account = Client::builder(Config::default())
+            .token_provider(provider.clone())
+            .http_client(http.clone())
+            .build()
+            .unwrap()
+            .for_account("999");
+        account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap();
+        // Every request that met the expiry waits on one refresh; a body alive then
+        // would be one holding its connection for the whole of it.
+        assert_eq!(*provider.seen.lock().unwrap(), vec![0]);
+        assert_eq!(http.live_bodies.load(Ordering::SeqCst), 0);
+        assert_eq!(http.sent.lock().unwrap().len(), 2);
+    }
+
+    /// A transport whose one answer is a 401 with a body that never arrives.
+    struct StalledUnauthorized;
+
+    struct Stalled;
+
+    impl futures_util::Stream for Stalled {
+        type Item = Result<Bytes, Error>;
+
+        fn poll_next(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            std::task::Poll::Pending
+        }
+    }
+
+    #[async_trait]
+    impl HttpClient for StalledUnauthorized {
+        async fn send(&self, _: Request<Bytes>) -> Result<HttpResponse<Body>, Error> {
+            let mut response = HttpResponse::new(Body::from_stream(Stalled, None));
+            *response.status_mut() = StatusCode::UNAUTHORIZED;
+            Ok(response)
+        }
+    }
+
+    /// Counts the request starts and ends the hooks are told about.
+    #[derive(Default)]
+    struct CountingRequests {
+        starts: AtomicUsize,
+        ends: AtomicUsize,
+    }
+
+    impl Hooks for CountingRequests {
+        fn on_request_start(&self, _: &RequestInfo) {
+            self.starts.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn on_request_end(&self, _: &RequestInfo, _: &RequestResult<'_>) {
+            self.ends.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_401_body_that_outlives_the_deadline_still_ends_its_request() {
+        let counting = Arc::new(CountingRequests::default());
+        let account = Client::builder(Config::default())
+            .token_provider(Declining)
+            .http_client(Arc::new(StalledUnauthorized))
+            .hooks(counting.clone())
+            .operation_deadline(Duration::from_millis(100))
+            .build()
+            .unwrap()
+            .for_account("999");
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert!(error.is_deadline_exceeded(), "{error:?}");
+        assert_eq!(counting.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(counting.ends.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn a_declined_refresh_keeps_the_401_body_in_the_error() {
+        let http = Arc::new(Scripted::new(vec![(
+            401,
+            vec![],
+            r#"{"error": "token expired"}"#,
+        )]));
+        let account = Client::builder(Config::default())
+            .token_provider(Declining)
+            .http_client(http.clone())
+            .build()
+            .unwrap()
+            .for_account("999");
+        let error = account
+            .execute(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert_eq!(error.http_status(), Some(401));
+        assert!(error.message().contains("token expired"), "{error:?}");
+        assert_eq!(http.sent.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_successful_body_that_does_not_decode_is_a_statusless_api_error() {
+        let http = Arc::new(Scripted::new(vec![(200, vec![], "<html>")]));
+        let account = client(http);
+        let error = account
+            .send::<serde_json::Value>(account.operation(&GET_WIDGET, &[&1]))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code(), ErrorCode::ApiError);
+        assert_eq!(error.http_status(), None);
+        assert!(!error.is_retryable());
+    }
+
+    #[tokio::test]
+    async fn dot_only_path_parameters_are_refused_before_anything_is_sent() {
+        let http = Arc::new(Scripted::new(vec![]));
+        let account = client(http.clone());
+        for value in [".", ".."] {
+            let error = account
+                .execute(account.operation(&LIST_CHILDREN, &[&value]))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code(), ErrorCode::Usage, "{value}: {error:?}");
+            assert!(error.message().contains("ListChildren"), "{error:?}");
+        }
+        assert!(http.sent.lock().unwrap().is_empty());
+        // A dot inside a segment is only a character: `{widgetId}.json` with `..` is
+        // `...json`, which the parser keeps and the server answers as it sees fit.
+        let url = account
+            .url_for(&account.operation(&GET_WIDGET, &[&".."]))
+            .unwrap();
+        assert_eq!(url.path(), "/999/widgets/...json");
+    }
+
+    #[test]
+    fn a_response_debugs_without_its_credentials_or_its_bytes() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", HeaderValue::from_static("Bearer secret"));
+        headers.insert("x-request-id", HeaderValue::from_static("req-1"));
+        let body = Bytes::from_static(br#"{"email_address":"someone@example.com"}"#);
+        let response = Response {
+            status: StatusCode::OK,
+            headers,
+            body: body.clone(),
+            url: Url::parse("https://api.example.com/999/people/1.json").unwrap(),
+        };
+        let debug = format!("{response:?}");
+        assert!(!debug.contains("secret"), "{debug}");
+        assert!(!debug.contains("someone@"), "{debug}");
+        assert!(debug.contains("/999/people/1.json"), "{debug}");
+        assert!(debug.contains("[REDACTED]"), "{debug}");
+        assert!(debug.contains("req-1"), "{debug}");
+        assert!(
+            debug.contains(&format!("[{} bytes]", body.len())),
+            "{debug}"
+        );
+    }
+
+    #[test]
+    fn account_ids_are_one_path_segment() {
+        assert_eq!(account_segment("999").unwrap(), "999");
+        assert_eq!(account_segment("a b").unwrap(), "a%20b");
+        assert!(account_segment("").is_err());
+        assert!(account_segment("..").is_err());
+    }
+}
