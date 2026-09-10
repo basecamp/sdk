@@ -123,10 +123,12 @@ Initialize each language in parallel -- they are independent of each other.
 1. Copy `seed/rust/` into `rust/`. Unlike the other scaffolds this is a complete,
    compilable crate (`rust/sdk/`) with an empty `src/generated/` tree; the runtime —
    client, auth, errors, hooks, retry, pagination, security — is already there.
-2. `cd rust && cargo generate-lockfile` and commit `Cargo.lock` (every `rs-*` target
-   passes `--locked`).
-3. Port `rust/generator` from basecamp/basecamp-sdk, add `"generator"` to `members` in
+2. Port `rust/generator` from basecamp/basecamp-sdk, add `"generator"` to `members` in
    `rust/Cargo.toml`, and adapt its `names.toml`.
+3. `cd rust && cargo generate-lockfile` and commit `Cargo.lock`. Every `rs-*` target
+   passes `--locked`, so the lockfile must already know the generator: one generated
+   before the workspace gained that member fails the next step with "the lock file
+   needs to be updated but --locked was passed".
 4. `make rs-generate-services`
 
 **Checkpoint:** `make rs-check` passes (fmt + clippy + tests + docs + deny + drift +
