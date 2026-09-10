@@ -116,9 +116,10 @@ jobs:
         run: |
           # Publish only when the registry positively says the version is absent
           # (E404). Any other failure — network, auth, registry outage — stops the
-          # job rather than guessing; a re-run of this run is the recovery.
+          # job rather than guessing; a re-run of this run is the recovery. An empty
+          # cache keeps npm from answering from a stale packument when the fetch fails.
           set +e
-          output=$(npm view "{{.NpmPackage}}@${VERSION}" version 2>&1)
+          output=$(npm view --cache "$RUNNER_TEMP/npm-view-cache" "{{.NpmPackage}}@${VERSION}" version 2>&1)
           status=$?
           set -e
           if [ "$status" -eq 0 ] && [ -n "$output" ]; then
