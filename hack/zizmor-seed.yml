@@ -1,0 +1,22 @@
+# zizmor policy for the rendered seed templates (hack/render-seed.sh output), used
+# by .github/workflows/ci.yml. The repo's own workflows and actions/ run under the
+# default policy; only the templates carry these baseline exceptions, which exist
+# because the templates predate the SHA-pinned, zizmor-clean release workflows in
+# basecamp-sdk. Each entry should go when the template it names is re-extracted
+# from there.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin
+  cache-poisoning:
+    ignore:
+      - release-go.yml
+      - release-kotlin.yml
+      - release-ruby.yml
+      - release-typescript.yml
+  excessive-permissions:
+    ignore:
+      - release-kotlin.yml
+      - release-ruby.yml
+      - release-typescript.yml

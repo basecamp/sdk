@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+env:
+  ZIZMOR_VERSION: 1.30.0
+  ACTIONLINT_VERSION: v1.7.12
+
+jobs:
+  actions:
+    name: Composite actions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install zizmor and bats
+        run: |
+          pipx install "zizmor==$ZIZMOR_VERSION"
+          sudo apt-get install -y --no-install-recommends bats
+
+      - name: zizmor (actions/ and this repo's workflows)
+        run: zizmor --no-progress --format github actions .github/workflows
+
+      - name: shellcheck
+        run: |
+          find actions -type f \( -name '*.sh' -o -path '*/test/stubs/*' \) -print0 | xargs -0 -r shellcheck
+
+      - name: bats
+        run: |
+          find actions -name '*.bats' -print0 | xargs -0 -r bats
+
+  seed:
+    name: Seed templates
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Install actionlint and zizmor
+        run: |
+          go install "github.com/rhysd/actionlint/cmd/actionlint@$ACTIONLINT_VERSION"
+          pipx install "zizmor==$ZIZMOR_VERSION"
+
+      - name: Render seed/ with fixture values
+        run: hack/render-seed.sh .rendered
+
+      - name: actionlint (rendered workflow templates)
+        # A .git marker makes actionlint treat the rendered tree as the project, so
+        # `uses: ./.github/workflows/<reusable>.yml` resolves against the seed's own files.
+        run: |
+          git init -q .rendered
+          cd .rendered && actionlint
+
+      - name: zizmor (rendered workflow templates)
+        run: zizmor --no-progress --format github --config hack/zizmor-seed.yml --min-severity high .rendered/.github/workflows

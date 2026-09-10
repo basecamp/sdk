@@ -81,7 +81,7 @@ jobs:
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             VERSION=$(grep '^version' sdk/build.gradle.kts | sed 's/version = "\(.*\)"/\1/')
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Rehearsal for version: $VERSION"
           else
             # Tag trigger: extract from tag (v0.2.1 → 0.2.1)
@@ -91,7 +91,7 @@ jobs:
               echo "::error::Gradle version ($GRADLE_VERSION) does not match tag version ($VERSION)"
               exit 1
             fi
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "Releasing version: $VERSION"
           fi
 
