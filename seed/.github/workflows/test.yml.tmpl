@@ -5,12 +5,18 @@ on:
     branches: [main]
   pull_request:
 
+permissions: {}
+
 jobs:
   smithy-verify:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: basecamp/sdk/actions/smithy-verify@main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: basecamp/sdk/actions/smithy-verify@main # zizmor: ignore[unpinned-uses] -- internal action tracking main by design (basecamp/sdk AGENTS.md); basecamp/sdk has no tags for Dependabot to advance a pin
 
   conformance:
     needs: smithy-verify
@@ -28,14 +34,22 @@ jobs:
           - language: kotlin
             runner: ubuntu-latest
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: basecamp/sdk/actions/conformance-run@main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: basecamp/sdk/actions/conformance-run@main # zizmor: ignore[unpinned-uses] -- internal action tracking main by design (basecamp/sdk AGENTS.md); basecamp/sdk has no tags for Dependabot to advance a pin
         with:
           language: ${{ matrix.language }}
 
   rubric-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: basecamp/sdk/actions/rubric-check@main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: basecamp/sdk/actions/rubric-check@main # zizmor: ignore[unpinned-uses] -- internal action tracking main by design (basecamp/sdk AGENTS.md); basecamp/sdk has no tags for Dependabot to advance a pin
