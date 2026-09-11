@@ -6,23 +6,27 @@ on:
       - 'v*'
   workflow_dispatch:  # Manual trigger is always dry-run (rehearsal mode)
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   smithy:
+    permissions:
+      contents: read
     uses: $/.github/workflows/smithy-verify.yml
 
   test:
     name: Test before release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: go
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify tag is on main
         if: github.event_name == 'push'
@@ -31,7 +35,7 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] -- cache is branch-isolated; fork PRs cannot write to this cache
         with:
           go-version-file: 'go/go.mod'
           cache-dependency-path: 'go/go.sum'
@@ -69,7 +73,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked] -- job needs git push credentials for tagging
 
       - name: Push go/ subdirectory tag
         run: |
