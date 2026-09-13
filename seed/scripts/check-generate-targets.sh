@@ -61,10 +61,12 @@ invocation_for() {
   esac
 }
 
-# The plan `make -n` prints, minus echoes, make's own recursion lines and its
-# "Nothing to be done" notices, so a generator named inside an echo does not count.
+# The plan `make -n` prints, minus the lines that are not commands: echoes, shell
+# comments (a commented-out recipe line is still printed), make's own recursion
+# lines and its "Nothing to be done" notices. A generator named in any of those
+# does not count.
 commands_of() {
-  grep -vE '^(echo |(.*/)?make(\[[0-9]+\])?[ :])' || true
+  grep -vE '^(#|echo |(.*/)?make(\[[0-9]+\])?[ :])' || true
 }
 
 failed=()

@@ -87,6 +87,15 @@ set_profile() {
   [[ "$output" == *"swift-generate-services never invokes the generator"* ]]
 }
 
+@test "a commented-out generator command does not count" {
+  stub_generators
+  perl -pi -e 's/^\tcd ruby && ruby scripts\/generate-services\.rb$/\t# cd ruby && ruby scripts\/generate-services.rb/' Makefile
+  grep -q '^	# cd ruby && ruby scripts/generate-services.rb' Makefile
+  run scripts/check-generate-targets.sh --dry-run rb
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"rb-generate-services never invokes the generator"* ]]
+}
+
 @test "a narrowed profile is checked for its own languages only" {
   set_profile "go rs"
   run scripts/check-generate-targets.sh --dry-run
