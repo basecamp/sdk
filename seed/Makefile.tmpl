@@ -17,6 +17,13 @@ all: check
 # is absent; the profile changes what the aggregates ask for, not what exists.
 SDK_LANGUAGES := go ts rb swift kt rs
 
+# A prefix outside the vocabulary fails every make invocation here, at parse
+# time, rather than being dropped from the aggregates that map it.
+KNOWN_LANGUAGES := go ts rb swift kt rs
+ifneq ($(filter-out $(KNOWN_LANGUAGES),$(SDK_LANGUAGES)),)
+$(error SDK_LANGUAGES has unknown prefix(es): $(filter-out $(KNOWN_LANGUAGES),$(SDK_LANGUAGES)); expected a subset of "$(KNOWN_LANGUAGES)")
+endif
+
 LANG_CHECKS := $(addsuffix -check,$(SDK_LANGUAGES))
 
 # Provenance is embedded in the Go package and check-mvp is the Go inner loop;

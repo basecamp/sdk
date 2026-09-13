@@ -104,6 +104,13 @@ set_profile() {
   [[ "$output" != *"ts-generate-services"* ]]
 }
 
+@test "an unknown prefix in SDK_LANGUAGES fails make at parse time" {
+  set_profile "go tsx"
+  run make -n conformance
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"SDK_LANGUAGES has unknown prefix(es): tsx"* ]]
+}
+
 @test "run mode executes the target and reports its exit status" {
   stub_generators
   mkdir bin
