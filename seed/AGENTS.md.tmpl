@@ -25,18 +25,17 @@ Smithy spec -> OpenAPI -> Behavior Model -> Per-language generators -> SDK code
 
 1. Edit the Smithy spec in `spec/model/`
 2. Run `make smithy-build` to regenerate OpenAPI
-3. Regenerate the service layer. Name the targets for the languages this SDK actually
-   ships: `make go-generate-services`, `make ts-generate-services`,
-   `make rb-generate-services`, `make kt-generate-services`, `make swift-generate-services`,
-   `make rs-generate-services`.
-   The aggregate `make generate-services` runs all six unconditionally, so it only
-   works on a full six-language repo -- on a narrower profile it fails on the first
-   language that was never initialized.
+3. Regenerate the service layer: `make generate-services` runs
+   `<prefix>-generate-services` for every language in `SDK_LANGUAGES` (the profile at
+   the top of the Makefile), or name one: `make go-generate-services`,
+   `make ts-generate-services`, `make rb-generate-services`, `make kt-generate-services`,
+   `make swift-generate-services`, `make rs-generate-services`.
 4. Add/update tests
 5. Run `make check`
 6. Commit
 
-`make check` has the same six-language assumption as the aggregate above: it depends on
-`go-check ts-check rb-check swift-check kt-check rs-check conformance` unconditionally. On a
-narrower profile, trim those dependencies when you instantiate the Makefile, or the gate
-fails in a language the repo never initialized.
+`make check` gates on the same profile: `<prefix>-check` and the conformance runners for
+the languages in `SDK_LANGUAGES`, nothing else. It also runs `generate-services-check`,
+which fails if any generate target in the profile has no generator behind it or no
+longer invokes it. To add a language, add its prefix to `SDK_LANGUAGES` and wire its generator;
+`make generate-services-check` says what is still missing.

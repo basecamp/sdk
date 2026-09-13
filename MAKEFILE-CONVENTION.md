@@ -6,7 +6,7 @@ Required Makefile targets and release architecture for SDK repositories.
 
 | Target | Default? | Contract |
 |--------|----------|----------|
-| `check` | **Yes** | CI gate. Comprehensive: smithy-check + behavior-model-check + url-routes-check + provenance-check + sync-api-version-check + {lang}-check + conformance + audit-check. Not fast — use `check-mvp` or `{lang}-check` for inner-loop. |
+| `check` | **Yes** | CI gate. Comprehensive: smithy-check + behavior-model-check + url-routes-check + provenance-check + sync-api-version-check + audit-check + generate-services-check + {lang}-check + conformance, with {lang}-check and conformance ranging over `SDK_LANGUAGES` (see Language Profile). Not fast — use `check-mvp` or `{lang}-check` for inner-loop. |
 | `check-mvp` | | Fast iteration target: smithy-check + behavior-model-check + url-routes-check + sync-api-version-check + go-check. Skips conformance. |
 | `smithy-mapper` | | Build Smithy plugin to local Maven |
 | `smithy-build` | | Build OpenAPI from Smithy. Prerequisites: `behavior-model smithy-mapper`. Post-step: `sync-api-version`. |
@@ -23,11 +23,12 @@ Required Makefile targets and release architecture for SDK repositories.
 | `{lang}-check` | | All checks for one language. Must include lint + test (+ typecheck where applicable). |
 | `{lang}-check-drift` | | Verify generated services match spec for one language |
 | `{lang}-generate-services` | | Generate service classes from OpenAPI |
-| `conformance` | | All cross-language conformance tests |
+| `conformance` | | Conformance runners for the languages in `SDK_LANGUAGES` |
 | `audit-check` | | Validate rubric-audit.json: exists, must-pass manual criteria pass, date within 30 days |
 | `bump VERSION=x.y.z` | | Atomic version bump across all languages |
 | `release VERSION=x.y.z` | | Sole release authority (see below) |
-| `generate-services` | | Aggregate: regenerate services for all languages |
+| `generate-services` | | Aggregate: `{lang}-generate-services` for every language in `SDK_LANGUAGES` |
+| `generate-services-check` | | Non-mutating, part of `check`: every `{lang}-generate-services` in `SDK_LANGUAGES` names a generator artifact that exists and plans its invocation, through sub-Makefile delegation; a prerequisite's commands do not count (`scripts/check-generate-targets.sh --dry-run`) |
 
 ## Naming Conventions
 
@@ -57,6 +58,39 @@ Required Makefile targets and release architecture for SDK repositories.
 | Swift | build + test |
 | Kotlin | test (via `./gradlew :{app}-sdk:check`) |
 | Rust | fmt-check + clippy + test + doc + deny |
+
+## Language Profile
+
+The languages an SDK ships are one variable at the top of the Makefile, by prefix:
+
+```makefile
+SDK_LANGUAGES := go ts rb swift kt rs
+```
+
+It is set once, at instantiation, to the profile chosen in `prompts/seed-sdk.md`; the
+full set is the seed's default. The aggregates derive from it and nothing else:
+
+- `check`, `check-full`: `{lang}-check` for each listed prefix
+- `check-mvp`: adds `go-check` only when `go` is listed
+- `provenance-check` (Go-embedded provenance): in `check`/`check-full` only when `go` is listed
+- `generate-services`, `generate-services-check`, `clean`: one target per listed prefix
+- `conformance`, `conformance-build`: the runners for the listed prefixes, mapped by
+  `CONFORMANCE_RUNNER_<prefix>` (`ts` → `conformance-typescript`, and so on). Swift has
+  no mapping: the aggregate does not run the Swift runner today; the seeded `test.yml`
+  runs it on a macOS matrix leg instead
+
+Two things the profile deliberately does not do. It does not remove or guard the
+per-language targets: `make ts-check` on a profile without `ts` still exists and still
+fails, loudly, on the missing tree. And it is not inferred from which directories exist:
+a scaffold step that silently failed to create `go/` must fail `go-check`, not quietly
+narrow the gate. `sync-api-version-check` and `scripts/sync-version.sh` are the one
+exception, skipping a language whose file is absent, because a version constant that
+does not exist has nothing to be out of sync with.
+
+Instantiating a narrower profile therefore means: set `SDK_LANGUAGES`, and trim the
+`conformance` matrix in `.github/workflows/test.yml` to the same languages. `make
+release`'s version-constant guards still name all six languages and are not yet
+profile-aware.
 
 ## Release Architecture
 

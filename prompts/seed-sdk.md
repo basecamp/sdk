@@ -21,6 +21,12 @@ Decide which languages to include based on the target audience:
 
 The profile determines which rubric criteria apply (91 for full-sdk, 76 for single-language). Choose the minimal set that covers your deployment surface, then add languages later if needed.
 
+The Makefile records the choice as `SDK_LANGUAGES`, a list of target prefixes
+(`go ts rb swift kt rs` is the full set), and `make check`, `make generate-services`,
+`make conformance` and `make clean` range over it; per-language targets for languages
+outside the list still exist and still fail. Set it in Phase 3, and keep the
+`conformance` matrix in `.github/workflows/test.yml` to the same languages in Phase 5.
+
 ## Template Variable Reference
 
 All `.tmpl` files use Go template syntax. Replace these placeholders before renaming:
@@ -70,52 +76,60 @@ The spec drives everything downstream.
 
 ### Phase 3: Build pipeline
 
-1. `Makefile.tmpl` -> `Makefile`
+1. `Makefile.tmpl` -> `Makefile`, then set `SDK_LANGUAGES` at the top to the prefixes of
+   the languages chosen above
 2. `scripts/` -- copy build helper scripts
 
 **Checkpoint:** `make smithy-build` produces `openapi.json`.
 
 ### Phase 4: Per-language SDKs
 
-Initialize each language in parallel -- they are independent of each other.
+Initialize each language in parallel -- they are independent of each other. The seed
+ships no generator for any language: each `<prefix>-generate-services` recipe names an
+artifact the scaffold step has to produce, and `scripts/check-generate-targets.sh
+<prefix>` runs the target only after asserting that artifact exists and the target's
+plan invokes it, so a scaffold that quietly produced nothing fails there rather than
+at the first spec change.
 
 #### Go
 1. Copy `seed/go/` into `go/`
 2. `cd go && go mod init {{.ModulePath}}`
-3. Scaffold client, error types, service base
-4. `make go-generate-services`
+3. Scaffold client, error types, service base, and the generator at `go/cmd/generate-services/`
+4. `scripts/check-generate-targets.sh go` (runs `make go-generate-services`)
 
 **Checkpoint:** `make go-check` passes (format + vet + test).
 
 #### TypeScript
 1. Copy `seed/typescript/` into `typescript/`
 2. `cd typescript && npm init --scope={{.NpmScope}}`
-3. Scaffold client, error types, service base
-4. `make ts-generate-services`
+3. Scaffold client, error types, service base, and the generator at `typescript/scripts/generate-services.ts`
+4. `scripts/check-generate-targets.sh ts` (runs `make ts-generate-services`)
 
 **Checkpoint:** `make ts-check` passes (tsc + lint + test).
 
 #### Ruby
 1. Copy `seed/ruby/` into `ruby/`
 2. `cd ruby && bundle init`
-3. Scaffold client, error types, service base
-4. `make rb-generate-services`
+3. Scaffold client, error types, service base, and the generator at `ruby/scripts/generate-services.rb`
+4. `scripts/check-generate-targets.sh rb` (runs `make rb-generate-services`)
 
 **Checkpoint:** `make rb-check` passes (rubocop + test).
 
 #### Swift
 1. Copy `seed/swift/` into `swift/`
 2. Initialize `Package.swift`
-3. Scaffold client, error types, service base
-4. `make swift-generate-services`
+3. Scaffold client, error types, service base, and `swift/Makefile` with a `generate`
+   target that runs the generator with `swift run` -- the root `swift-generate-services`
+   delegates to it
+4. `scripts/check-generate-targets.sh swift` (runs `make swift-generate-services`)
 
 **Checkpoint:** `swift build && swift test` pass.
 
 #### Kotlin
 1. Copy `seed/kotlin/` into `kotlin/`
 2. Initialize `build.gradle.kts`
-3. Scaffold client, error types, service base
-4. `make kt-generate-services`
+3. Scaffold client, error types, service base, and the generator at `kotlin/generator/`
+4. `scripts/check-generate-targets.sh kt` (runs `make kt-generate-services`)
 
 **Checkpoint:** `./gradlew build` passes.
 
@@ -129,7 +143,7 @@ Initialize each language in parallel -- they are independent of each other.
    passes `--locked`, so the lockfile must already know the generator: one generated
    before the workspace gained that member fails the next step with "the lock file
    needs to be updated but --locked was passed".
-4. `make rs-generate-services`
+4. `scripts/check-generate-targets.sh rs` (runs `make rs-generate-services`)
 
 **Checkpoint:** `make rs-check` passes (fmt + clippy + tests + docs + deny + drift +
 publish dry-run). Before the generator exists, `cd rust && cargo test && cargo publish
@@ -139,7 +153,8 @@ publish dry-run). Before the generator exists, `cd rust && cargo test && cargo p
 
 1. Copy `conformance/` from sdk/common (tests + schema)
 2. Initialize per-language conformance runners
-3. Copy `.github/` workflow templates
+3. Copy `.github/` workflow templates; trim the `conformance` matrix in `test.yml` to
+   the languages in `SDK_LANGUAGES`
 4. `rubric-audit.json` -- create initial audit with profile and date
 
 **Checkpoint:** `make conformance` runs (tests may fail -- that's the gap to close).
@@ -147,7 +162,7 @@ publish dry-run). Before the generator exists, `cd rust && cargo test && cargo p
 ### Phase 6: Full verification
 
 ```bash
-make check       # smithy-check + all lang checks + conformance + audit-check
+make check       # smithy-check + generate-services-check + the profile's lang checks + conformance + audit-check
 ```
 
 All checks must pass before the first commit to main.
@@ -168,8 +183,9 @@ Run these per-language to confirm the SDK is functional end-to-end:
 Then cross-language:
 
 ```bash
-make conformance        # All conformance tests
-make audit-check        # rubric-audit.json exists, fresh, must-pass criteria met
+scripts/check-generate-targets.sh   # Every generate target in the profile runs, against a real generator
+make conformance                    # Conformance tests for the profile's languages
+make audit-check                    # rubric-audit.json exists, fresh, must-pass criteria met
 ```
 
 Finally, run the `rubric-audit` skill to establish a baseline score and identify gaps to close.
