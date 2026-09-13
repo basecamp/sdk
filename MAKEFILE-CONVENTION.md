@@ -28,7 +28,7 @@ Required Makefile targets and release architecture for SDK repositories.
 | `bump VERSION=x.y.z` | | Atomic version bump across all languages |
 | `release VERSION=x.y.z` | | Sole release authority (see below) |
 | `generate-services` | | Aggregate: `{lang}-generate-services` for every language in `SDK_LANGUAGES` |
-| `generate-services-check` | | Non-mutating, part of `check`: every `{lang}-generate-services` in `SDK_LANGUAGES` invokes a generator artifact that exists and expands to real work, through sub-Makefile delegation (`scripts/check-generate-targets.sh --dry-run`) |
+| `generate-services-check` | | Non-mutating, part of `check`: every `{lang}-generate-services` in `SDK_LANGUAGES` names a generator artifact that exists and plans its invocation, through sub-Makefile delegation; a prerequisite's commands do not count (`scripts/check-generate-targets.sh --dry-run`) |
 
 ## Naming Conventions
 

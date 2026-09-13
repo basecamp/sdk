@@ -87,9 +87,9 @@ The spec drives everything downstream.
 Initialize each language in parallel -- they are independent of each other. The seed
 ships no generator for any language: each `<prefix>-generate-services` recipe names an
 artifact the scaffold step has to produce, and `scripts/check-generate-targets.sh
-<prefix>` runs the target only after asserting that artifact exists and the target
-expands to real work, so a scaffold that quietly produced nothing fails there rather
-than at the first spec change.
+<prefix>` runs the target only after asserting that artifact exists and the target's
+plan invokes it, so a scaffold that quietly produced nothing fails there rather than
+at the first spec change.
 
 #### Go
 1. Copy `seed/go/` into `go/`
@@ -119,7 +119,8 @@ than at the first spec change.
 1. Copy `seed/swift/` into `swift/`
 2. Initialize `Package.swift`
 3. Scaffold client, error types, service base, and `swift/Makefile` with a `generate`
-   target that runs the generator -- the root `swift-generate-services` delegates to it
+   target that runs the generator with `swift run` -- the root `swift-generate-services`
+   delegates to it
 4. `scripts/check-generate-targets.sh swift` (runs `make swift-generate-services`)
 
 **Checkpoint:** `swift build && swift test` pass.

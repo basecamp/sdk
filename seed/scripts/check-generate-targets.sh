@@ -2,10 +2,11 @@
 # Proves each <prefix>-generate-services target is wired to a real generator rather
 # than exiting 0 vacuously. For every prefix it asserts that:
 #   1. the generator artifact the root Makefile's recipe invokes exists;
-#   2. the target expands to at least one command that is not an echo, through any
-#      sub-Makefile delegation (`make -n` follows $(MAKE) -C), so an alias whose
-#      prerequisite was tidied away, or a sub-Makefile `generate` with no recipe,
-#      fails here;
+#   2. the target's plan (`make -n`, which follows $(MAKE) -C into a sub-Makefile)
+#      contains the invocation of that generator. Any command from a prerequisite
+#      is not enough: `ts-install` still plans `npm ci` after the ts recipe is gone,
+#      so a recipe that was tidied away, an alias that lost its prerequisite, or a
+#      sub-Makefile `generate` with no recipe all fail here;
 #   3. unless --dry-run, `make <prefix>-generate-services` runs and exits 0.
 # Prefixes default to SDK_LANGUAGES in the Makefile. `make generate-services-check`
 # runs the dry form as part of `make check`; the full form is the bootstrap
@@ -34,7 +35,8 @@ else
 fi
 
 # The artifact each root recipe invokes. Swift's recipe is `$(MAKE) -C swift
-# generate`, so its artifact is the sub-Makefile and check 2 covers the target in it.
+# generate`, so its artifact is the sub-Makefile, and the invocation to find is
+# the sub-Makefile's: the generator is a SwiftPM executable run with `swift run`.
 artifact_for() {
   case "$1" in
     go)    echo "go/cmd/generate-services" ;;
@@ -47,9 +49,21 @@ artifact_for() {
   esac
 }
 
-# What `make -n` would run, minus echoes, make's own recursion lines and its
-# "Nothing to be done" notices. Anything left is generator work.
-work_lines() {
+# The command line, as `make -n` prints it, that runs the generator (grep -E).
+invocation_for() {
+  case "$1" in
+    go)    echo 'go run \./cmd/generate-services' ;;
+    ts)    echo 'scripts/generate-services\.ts' ;;
+    rb)    echo 'ruby scripts/generate-services\.rb' ;;
+    swift) echo '^swift run ' ;;
+    kt)    echo 'gradlew :generator:run' ;;
+    rs)    echo 'cargo run .*-generator' ;;
+  esac
+}
+
+# The plan `make -n` prints, minus echoes, make's own recursion lines and its
+# "Nothing to be done" notices, so a generator named inside an echo does not count.
+commands_of() {
   grep -vE '^(echo |(.*/)?make(\[[0-9]+\])?[ :])' || true
 }
 
@@ -71,13 +85,13 @@ for prefix in "${prefixes[@]}"; do
     ok=false
   fi
 
+  invocation=$(invocation_for "$prefix")
   if plan=$("$make" -n --no-print-directory "$target" 2>&1); then
-    work=$(printf '%s\n' "$plan" | work_lines)
-    if [ -n "$work" ]; then
-      echo "  ok: expands to work:"
-      printf '%s\n' "$work" | sed 's/^/        /'
+    if run_line=$(printf '%s\n' "$plan" | commands_of | grep -E -m1 "$invocation"); then
+      echo "  ok: invokes the generator: $run_line"
     else
-      echo "  FAIL: $target expands to no command; it exits 0 having done nothing"
+      echo "  FAIL: $target never invokes the generator (no command matches /$invocation/); its plan is:"
+      printf '%s\n' "$plan" | sed 's/^/        /'
       ok=false
     fi
   else

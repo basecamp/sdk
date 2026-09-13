@@ -482,8 +482,8 @@ conformance: $(addprefix conformance-,$(CONFORMANCE_RUNNERS))
 generate-services: $(addsuffix -generate-services,$(SDK_LANGUAGES))
 	@echo "==> All services regenerated"
 
-# Non-mutating: every generate target in the profile must invoke a generator
-# that exists and expand to real work, through Swift's sub-Makefile included.
+# Non-mutating: every generate target in the profile must plan an invocation of
+# a generator that exists, through Swift's sub-Makefile included.
 # Without --dry-run the script also runs each target, which is the bootstrap
 # checkpoint (prompts/seed-sdk.md).
 generate-services-check:

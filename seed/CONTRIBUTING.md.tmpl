@@ -33,8 +33,9 @@
 
 `make check` gates on the same profile: `<prefix>-check` and the conformance runners for
 the languages in `SDK_LANGUAGES`, nothing else. It also runs `generate-services-check`,
-which fails if any generate target in the profile has no generator behind it or expands
-to no work (`make -n` through Swift's sub-Makefile). `scripts/check-generate-targets.sh`
+which fails if any generate target in the profile has no generator behind it or no
+longer invokes it (`make -n` through Swift's sub-Makefile; a prerequisite's commands do
+not count). `scripts/check-generate-targets.sh`
 without `--dry-run` runs each generate target as well; that is the check to run after
 porting or changing a generator. To add a language, add its prefix to `SDK_LANGUAGES`,
 add it to the `conformance` matrix in `.github/workflows/test.yml`, and wire its

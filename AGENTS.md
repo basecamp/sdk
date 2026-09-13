@@ -93,8 +93,10 @@ The seed ships no generator for any language, so on a pristine render every
 generators work. What `hack/test/check-generate-targets.bats` pins instead is the
 detector: `scripts/check-generate-targets.sh` must fail on the pristine render for all
 six prefixes, pass once the artifacts each recipe invokes exist (Swift's through its
-sub-Makefile), and fail on a target that exits 0 having done nothing. Rename a generate
-target or move a generator and that test is the first thing to break.
+sub-Makefile), and fail on a target that exits 0 having done nothing -- including one
+whose own recipe is gone while a prerequisite such as `ts-install` still plans work.
+Rename a generate target, move a generator or change how a recipe invokes it and that
+test is the first thing to break.
 
 ## `seed/rust/` is a crate, not a fragment
 

@@ -3,7 +3,7 @@
 # must fail for every language (no generator ships in the seed), stubbed generator
 # artifacts must pass, and a target that exits 0 having done nothing must fail.
 # Only `make` is needed: the dry run never executes a generator, and the run-mode
-# cases use a Swift sub-Makefile whose `generate` recipe is a shell one-liner.
+# cases put a fake `swift` on PATH behind the Swift sub-Makefile's `swift run`.
 
 setup() {
   tmp="$(mktemp -d)"
@@ -47,7 +47,7 @@ set_profile() {
   stub_generators
   run scripts/check-generate-targets.sh --dry-run
   [ "$status" -eq 0 ]
-  [[ "$output" == *"swift run FizzyGenerator"* ]]
+  [[ "$output" == *"invokes the generator: swift run FizzyGenerator"* ]]
   [[ "$output" == *"generate targets wired: go ts rb swift kt rs"* ]]
 }
 
@@ -56,7 +56,7 @@ set_profile() {
   printf 'generate:\n' > swift/Makefile
   run scripts/check-generate-targets.sh --dry-run
   [ "$status" -eq 1 ]
-  [[ "$output" == *"swift-generate-services expands to no command"* ]]
+  [[ "$output" == *"swift-generate-services never invokes the generator"* ]]
   [[ "$output" == *"ERROR: generate targets not wired: swift"* ]]
 }
 
@@ -65,7 +65,26 @@ set_profile() {
   perl -pi -e 's/^swift-generate-services: swift-generate$/swift-generate-services:/' Makefile
   run scripts/check-generate-targets.sh --dry-run swift
   [ "$status" -eq 1 ]
-  [[ "$output" == *"swift-generate-services expands to no command"* ]]
+  [[ "$output" == *"swift-generate-services never invokes the generator"* ]]
+}
+
+@test "a recipe that was removed is vacuous even when its prerequisites plan work" {
+  stub_generators
+  # ts-generate-services keeps ts-install, which still plans `npm ci` and the stamp.
+  perl -0pi -e 's/^ts-generate-services:\n\t\@echo[^\n]*\n\tcd typescript && npx tsx scripts\/generate-services\.ts\n/ts-generate-services:\n/m' Makefile
+  ! grep -q 'npx tsx scripts/generate-services.ts' Makefile
+  run scripts/check-generate-targets.sh --dry-run ts
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"npm ci"* ]]
+  [[ "$output" == *"ts-generate-services never invokes the generator"* ]]
+}
+
+@test "a generator named only inside an echo does not count" {
+  stub_generators
+  printf 'generate:\n\t@echo "swift run FizzyGenerator"\n' > swift/Makefile
+  run scripts/check-generate-targets.sh --dry-run swift
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"swift-generate-services never invokes the generator"* ]]
 }
 
 @test "a narrowed profile is checked for its own languages only" {
@@ -78,13 +97,16 @@ set_profile() {
 
 @test "run mode executes the target and reports its exit status" {
   stub_generators
-  printf 'generate:\n\ttouch generated.marker\n' > swift/Makefile
+  mkdir bin
+  printf '#!/bin/sh\ntouch generated.marker\n' > bin/swift
+  chmod +x bin/swift
+  PATH="$PWD/bin:$PATH"
   run scripts/check-generate-targets.sh swift
   [ "$status" -eq 0 ]
   [ -f swift/generated.marker ]
   [[ "$output" == *"make swift-generate-services exited 0"* ]]
 
-  printf 'generate:\n\texit 3\n' > swift/Makefile
+  printf '#!/bin/sh\nexit 3\n' > bin/swift
   run scripts/check-generate-targets.sh swift
   [ "$status" -eq 1 ]
   [[ "$output" == *"make swift-generate-services exited non-zero"* ]]

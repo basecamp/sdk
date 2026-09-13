@@ -36,6 +36,6 @@ Smithy spec -> OpenAPI -> Behavior Model -> Per-language generators -> SDK code
 
 `make check` gates on the same profile: `<prefix>-check` and the conformance runners for
 the languages in `SDK_LANGUAGES`, nothing else. It also runs `generate-services-check`,
-which fails if any generate target in the profile has no generator behind it or expands
-to no work. To add a language, add its prefix to `SDK_LANGUAGES` and wire its generator;
+which fails if any generate target in the profile has no generator behind it or no
+longer invokes it. To add a language, add its prefix to `SDK_LANGUAGES` and wire its generator;
 `make generate-services-check` says what is still missing.
