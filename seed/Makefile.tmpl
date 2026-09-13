@@ -567,7 +567,7 @@ audit-check:
 check-mvp: smithy-check behavior-model-check url-routes-check sync-api-version-check $(if $(HAS_GO),go-check)
 	@echo "==> MVP checks passed"
 
-check-full: check-mvp $(if $(HAS_GO),provenance-check) audit-check $(filter-out go-check,$(LANG_CHECKS)) conformance
+check-full: check-mvp $(if $(HAS_GO),provenance-check) audit-check generate-services-check $(filter-out go-check,$(LANG_CHECKS)) conformance
 	@echo "==> Full checks passed"
 
 check: smithy-check behavior-model-check url-routes-check sync-api-version-check $(if $(HAS_GO),provenance-check) audit-check generate-services-check $(LANG_CHECKS) conformance
