@@ -108,7 +108,7 @@ jobs:
 
       - name: Install cargo-deny
         if: matrix.toolchain != '1.88'
-        uses: taiki-e/install-action@c3ec0de9ae7f1019cea21aa96aa0a895b9552063 # v2.87.9
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2.87.12
         with:
           tool: cargo-deny@0.20.2
 
