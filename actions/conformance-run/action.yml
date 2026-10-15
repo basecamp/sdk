@@ -40,13 +40,13 @@ runs:
 
     - name: Set up Node
       if: inputs.language == 'typescript'
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '22'
 
     - name: Set up Ruby
       if: inputs.language == 'ruby'
-      uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+      uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
       with:
         ruby-version: ${{ inputs.ruby-version }}
         bundler-cache: true
@@ -61,7 +61,7 @@ runs:
 
     - name: Setup Gradle (for Kotlin)
       if: inputs.language == 'kotlin'
-      uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
     - name: Set up Rust
       if: inputs.language == 'rust'
