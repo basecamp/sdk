@@ -516,6 +516,10 @@ pub fn parse_retry_after(value: &str, now: Timestamp) -> Option<u32> {
 /// An HTTP-date and nothing else: IMF-fixdate, then the obsolete RFC 850 and asctime forms
 /// (RFC 9110 §5.6.7). RFC 2822's wider grammar — numeric offsets, zone names, `Z`, a
 /// missing weekday — is not an HTTP-date and falls through.
+///
+/// jiff reads a leap second (`23:59:60`) as `23:59:59`, a second before the moment the
+/// date names, so a wait computed from it would end a second early and retry before the
+/// server asked. A leap second gets its second back.
 fn parse_http_date(value: &str) -> Option<Timestamp> {
     let collapsed: String = value.split_whitespace().collect::<Vec<_>>().join(" ");
     for format in [
@@ -524,10 +528,26 @@ fn parse_http_date(value: &str) -> Option<Timestamp> {
         "%a %b %d %H:%M:%S %Y",
     ] {
         if let Ok(civil) = jiff::civil::DateTime::strptime(format, &collapsed) {
-            return jiff::tz::Offset::UTC.to_timestamp(civil).ok();
+            let parsed = jiff::tz::Offset::UTC.to_timestamp(civil).ok()?;
+            return if civil.second() == 59 && is_leap_second(&collapsed) {
+                parsed.checked_add(SignedDuration::from_secs(1)).ok()
+            } else {
+                Some(parsed)
+            };
         }
     }
     None
+}
+
+/// Whether an HTTP-date that parsed writes its seconds as `60`. The time of day is the
+/// only part of any of the three forms with a colon, so its seconds follow the last one.
+fn is_leap_second(date: &str) -> bool {
+    date.rsplit_once(':').is_some_and(|(_, rest)| {
+        rest.trim_start()
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .eq(*b"60")
+    })
 }
 
 /// The `Retry-After` header, parsed.
@@ -574,6 +594,32 @@ mod tests {
             Some(2_147_483_647)
         );
         assert_eq!(parse_retry_after("", at(0)), None);
+    }
+
+    #[test]
+    fn a_leap_second_date_names_the_second_after_it() {
+        // Half a second before 2016's leap second: the date names the end of 23:59:60,
+        // two seconds on, in every HTTP-date form.
+        let now = Timestamp::from_millisecond(1_483_228_798_500).unwrap();
+        for date in [
+            "Sat, 31 Dec 2016 23:59:60 GMT",
+            "Saturday, 31-Dec-16 23:59:60 GMT",
+            "Sat Dec 31 23:59:60 2016",
+        ] {
+            assert_eq!(parse_retry_after(date, now), Some(2), "{date}");
+            assert_eq!(
+                parse_http_date(date).map(Timestamp::as_second),
+                Some(1_483_228_800),
+                "{date}"
+            );
+        }
+        for date in [
+            "Sat, 31 Dec 2016 23:59:59 GMT",
+            "Saturday, 31-Dec-16 23:59:59 GMT",
+            "Sat Dec 31 23:59:59 2016",
+        ] {
+            assert_eq!(parse_retry_after(date, now), Some(1), "{date}");
+        }
     }
 
     #[test]
