@@ -69,12 +69,34 @@ inline, which is why the work sits under the unsuffixed name.
 `seed/Makefile.tmpl` defines the vocabulary. `actions/service-drift/action.yml`,
 `prompts/seed-sdk.md`, `prompts/close-gap.md`, `seed/AGENTS.md.tmpl`,
 `seed/CONTRIBUTING.md.tmpl`, `seed/README.md.tmpl`,
-`seed/.github/workflows/release-kotlin.yml.tmpl` and
-`seed/scripts/check-rust-service-drift.sh.tmpl` all restate it. Treat that list as a
-starting point and grep for the target name rather than trusting it. Rename a target and every one of them has to move in the same commit — they have
+`seed/.github/workflows/release-kotlin.yml.tmpl`,
+`seed/scripts/check-generate-targets.sh` (which also names the generator artifact each
+recipe invokes) and `seed/scripts/check-rust-service-drift.sh.tmpl` all restate it.
+Treat that list as a starting point and grep for the target name rather than trusting
+it. Rename a target and every one of them has to move in the same commit — they have
 drifted apart before. The Kotlin workflow is easy to miss: it names
 `kt-generate-services` inside a drift-check error message, so a stale name there ships
 into every SDK generated afterwards and tells users to run a target that is gone.
+
+## The language profile is `SDK_LANGUAGES`, and the generate targets are checked
+
+`SDK_LANGUAGES` at the top of `seed/Makefile.tmpl` is the only place a seeded SDK's
+language set lives; `check`, `generate-services`, `conformance` and `clean` range over
+it (`MAKEFILE-CONVENTION.md` § Language Profile). Adding a language to the seed means
+adding its prefix to that default, a `CONFORMANCE_RUNNER_<prefix>` mapping if its runner
+belongs in the aggregate, its generator artifact to `seed/scripts/check-generate-targets.sh`,
+and a matrix entry in `seed/.github/workflows/test.yml.tmpl`. Directory presence is not
+the signal: an aggregate that reads the tree would hide a scaffold step that failed.
+
+The seed ships no generator for any language, so on a pristine render every
+`<prefix>-generate-services` target fails, and nothing here can prove a seeded repo's
+generators work. What `hack/test/check-generate-targets.bats` pins instead is the
+detector: `scripts/check-generate-targets.sh` must fail on the pristine render for all
+six prefixes, pass once the artifacts each recipe invokes exist (Swift's through its
+sub-Makefile), and fail on a target that exits 0 having done nothing -- including one
+whose own recipe is gone while a prerequisite such as `ts-install` still plans work.
+Rename a generate target, move a generator or change how a recipe invokes it and that
+test is the first thing to break.
 
 ## `seed/rust/` is a crate, not a fragment
 

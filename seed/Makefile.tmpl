@@ -6,6 +6,41 @@
 all: check
 
 #---
+# Language profile
+#---
+
+# The languages this SDK ships, by Makefile prefix (go ts rb swift kt rs). Set at
+# instantiation (prompts/seed-sdk.md). The aggregates -- check, check-mvp,
+# check-full, generate-services, conformance, clean -- range over it, so a
+# narrower profile never gates on a language it did not initialize. Every
+# per-language target stays defined and still fails on its own if the language
+# is absent; the profile changes what the aggregates ask for, not what exists.
+SDK_LANGUAGES := go ts rb swift kt rs
+
+# A prefix outside the vocabulary fails every make invocation here, at parse
+# time, rather than being dropped from the aggregates that map it.
+KNOWN_LANGUAGES := go ts rb swift kt rs
+ifneq ($(filter-out $(KNOWN_LANGUAGES),$(SDK_LANGUAGES)),)
+$(error SDK_LANGUAGES has unknown prefix(es): $(filter-out $(KNOWN_LANGUAGES),$(SDK_LANGUAGES)); expected a subset of "$(KNOWN_LANGUAGES)")
+endif
+
+LANG_CHECKS := $(addsuffix -check,$(SDK_LANGUAGES))
+
+# Provenance is embedded in the Go package and check-mvp is the Go inner loop;
+# both drop out when the profile omits Go.
+HAS_GO := $(filter go,$(SDK_LANGUAGES))
+
+# Conformance runners are named by language, not prefix. Swift has no entry: the
+# aggregate does not run its runner today (CI runs it on a macOS matrix leg), so
+# the full profile keeps running exactly go, typescript, ruby, kotlin, rust.
+CONFORMANCE_RUNNER_go := go
+CONFORMANCE_RUNNER_ts := typescript
+CONFORMANCE_RUNNER_rb := ruby
+CONFORMANCE_RUNNER_kt := kotlin
+CONFORMANCE_RUNNER_rs := rust
+CONFORMANCE_RUNNERS := $(foreach p,$(SDK_LANGUAGES),$(CONFORMANCE_RUNNER_$(p)))
+
+#---
 # Smithy targets
 #---
 
@@ -395,13 +430,23 @@ rs-clean:
 # Conformance
 #---
 
-.PHONY: conformance-build conformance-go conformance-kotlin conformance-typescript conformance-ruby conformance-swift conformance-rust conformance-runner-tests-rust conformance
+.PHONY: conformance-build conformance-build-go conformance-build-typescript conformance-build-kotlin conformance-go conformance-kotlin conformance-typescript conformance-ruby conformance-swift conformance-rust conformance-runner-tests-rust conformance
 
-conformance-build:
-	@echo "==> Building conformance runners..."
+conformance-build-go:
+	@echo "==> Building Go conformance runner..."
 	cd conformance/runner/go && go build -o conformance-runner .
+
+conformance-build-typescript:
+	@echo "==> Installing TypeScript conformance runner..."
 	cd conformance/runner/typescript && npm ci
+
+conformance-build-kotlin:
+	@echo "==> Building Kotlin conformance runner..."
 	cd kotlin && ./gradlew :conformance:build
+
+# The runners with a build step of their own, for the profile's languages.
+conformance-build: $(addprefix conformance-build-,$(filter go typescript kotlin,$(CONFORMANCE_RUNNERS)))
+	@echo "==> Conformance runners built"
 
 conformance-go: conformance-build
 	@echo "==> Running Go conformance..."
@@ -432,17 +477,25 @@ conformance-runner-tests-rust:
 	@echo "==> Running Rust conformance runner unit tests..."
 	cd conformance/runner/rust && cargo test --locked
 
-conformance: conformance-go conformance-typescript conformance-ruby conformance-kotlin conformance-rust
+conformance: $(addprefix conformance-,$(CONFORMANCE_RUNNERS))
 	@echo "==> All conformance tests passed"
 
 #---
-# Service generation (all languages)
+# Service generation (the profile's languages)
 #---
 
-.PHONY: generate-services
+.PHONY: generate-services generate-services-check
 
-generate-services: go-generate-services ts-generate-services rb-generate-services swift-generate kt-generate-services rs-generate-services
+generate-services: $(addsuffix -generate-services,$(SDK_LANGUAGES))
 	@echo "==> All services regenerated"
+
+# Non-mutating: every generate target in the profile must plan an invocation of
+# a generator that exists, through Swift's sub-Makefile included.
+# Without --dry-run the script also runs each target, which is the bootstrap
+# checkpoint (prompts/seed-sdk.md).
+generate-services-check:
+	@echo "==> Checking generate targets..."
+	@./scripts/check-generate-targets.sh --dry-run $(SDK_LANGUAGES)
 
 #---
 # Version & Release
@@ -518,20 +571,23 @@ audit-check:
 
 .PHONY: check-mvp check-full
 
-check-mvp: smithy-check behavior-model-check url-routes-check sync-api-version-check go-check
+check-mvp: smithy-check behavior-model-check url-routes-check sync-api-version-check $(if $(HAS_GO),go-check)
 	@echo "==> MVP checks passed"
 
-check-full: check-mvp provenance-check audit-check ts-check rb-check swift-check kt-check rs-check conformance
+check-full: check-mvp $(if $(HAS_GO),provenance-check) audit-check generate-services-check $(filter-out go-check,$(LANG_CHECKS)) conformance
 	@echo "==> Full checks passed"
 
-check: smithy-check behavior-model-check url-routes-check sync-api-version-check provenance-check audit-check go-check ts-check rb-check swift-check kt-check rs-check conformance
+check: smithy-check behavior-model-check url-routes-check sync-api-version-check $(if $(HAS_GO),provenance-check) audit-check generate-services-check $(LANG_CHECKS) conformance
 	@echo "==> All checks passed"
 
-clean: smithy-clean go-clean ts-clean rb-clean swift-clean kt-clean rs-clean
+clean: smithy-clean $(addsuffix -clean,$(SDK_LANGUAGES))
 	@echo "==> Cleaned"
 
 help:
 	@echo "{{.AppTitle}} SDK Makefile"
+	@echo ""
+	@echo "Profile (SDK_LANGUAGES): $(SDK_LANGUAGES)"
+	@echo "  check, generate-services, conformance and clean range over these prefixes"
 	@echo ""
 	@echo "Smithy:"
 	@echo "  smithy-validate      Validate Smithy spec syntax"
@@ -602,7 +658,7 @@ help:
 	@echo "  rs-clean             Remove Rust build artifacts"
 	@echo ""
 	@echo "Conformance:"
-	@echo "  conformance          Run all conformance tests"
+	@echo "  conformance          Run conformance tests for the profile's languages"
 	@echo "  conformance-go       Run Go conformance tests"
 	@echo "  conformance-typescript Run TypeScript conformance tests"
 	@echo "  conformance-ruby     Run Ruby conformance tests"
@@ -617,7 +673,8 @@ help:
 	@echo "  sync-status          Show upstream changes since last spec sync"
 	@echo ""
 	@echo "Generation:"
-	@echo "  generate-services    Regenerate services for all languages"
+	@echo "  generate-services    Regenerate services for every language in the profile"
+	@echo "  generate-services-check  Verify each generate target in the profile invokes a real generator"
 	@echo ""
 	@echo "Version & Release:"
 	@echo "  bump VERSION=x.y.z       Bump SDK version across all languages"

@@ -53,10 +53,11 @@ jobs:
           go-version: stable
           cache: false
 
-      - name: Install actionlint and zizmor
+      - name: Install actionlint, zizmor and bats
         run: |
           go install "github.com/rhysd/actionlint/cmd/actionlint@$ACTIONLINT_VERSION"
           pipx install "zizmor==$ZIZMOR_VERSION"
+          sudo apt-get install -y --no-install-recommends bats
 
       - name: Render seed/ with fixture values
         run: hack/render-seed.sh .rendered
@@ -73,6 +74,12 @@ jobs:
 
       - name: shellcheck (rendered scripts)
         run: find .rendered/scripts -type f -name '*.sh' -print0 | xargs -0 -r shellcheck
+
+      # The generate-target coverage check, pinned on its own renders: the pristine
+      # seed fails for all six languages, stubbed generators pass, a target that
+      # exits 0 having done nothing fails.
+      - name: bats (generate-target coverage check)
+        run: bats hack/test
 
   rust-scaffold:
     # seed/rust/ is the one scaffold that is a complete crate (AGENTS.md), so it is
